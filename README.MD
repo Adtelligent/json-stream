@@ -53,7 +53,7 @@ The library supports JSON marshaling for the following field types:
 Additional handling for `structpb.Struct` is included.
 
 # Benchmarks Marshaling
-
+The benchmark was conducted using a data structure based on the [OpenRTB protocol](https://developers.google.com/authorized-buyers/rtb/downloads/openrtb-proto) from Google.
 ![benchmark.png](benchmarks/benchmark.png)
 
 ## Contributing
