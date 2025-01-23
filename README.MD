@@ -1,7 +1,3 @@
-Code, which generates JSON with qtc files
-
-to re-generate run `make run` from current directory.
-
 # Json-stream Marshaling Library
 
 This library provides a fast and efficient solution for JSON marshaling in Golang through code generation and quicktemplate templates. It is particularly effective for structures with a large number of fields, ensuring optimal performance and reduced overhead compared to traditional JSON encoding approaches.
