@@ -2,17 +2,17 @@ package main
 
 import (
 	"flag"
+	"json-stream/gen"
 	"log"
 	"os"
-	"qtpl-generator/gen"
 )
 
 var prepocessing = flag.Bool("prepocessing", false, "is prepocessing mode")
 
 func main() {
 	flag.Parse()
-	file := os.Args[len(os.Args)-3]
-	importPath := os.Args[len(os.Args)-2]
+	file := "test/test.go"
+	importPath := "json-stream/test"
 	b, err := os.ReadFile(file)
 	if err != nil {
 		log.Fatalf("cant read file. err: %s", err)
@@ -23,7 +23,7 @@ func main() {
 		return
 	}
 
-	dstPath := os.Args[len(os.Args)-1]
+	dstPath := "test/"
 	info, err := os.Stat(file)
 	if err != nil {
 		log.Fatalf("%s", err)

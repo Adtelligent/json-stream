@@ -3,8 +3,8 @@ package gen
 import (
 	"bytes"
 	"flag"
-	"gitlab.adtelligent.com/common/shared/log"
-	"qtpl-generator/reg"
+	"json-stream/reg"
+	"log"
 	"regexp"
 	"strings"
 )

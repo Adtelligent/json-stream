@@ -1,5 +1,5 @@
 DST=test/
-IMPORT_PATH=qtpl-generator/test
+IMPORT_PATH=json-stream/test
 SRC=test/test.go
 
 run: preprocessing

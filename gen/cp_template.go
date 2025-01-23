@@ -3,7 +3,7 @@ package gen
 import (
 	"bytes"
 	"fmt"
-	"qtpl-generator/reg"
+	"json-stream/reg"
 	"reflect"
 	"strings"
 )

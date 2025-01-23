@@ -3,8 +3,8 @@ package gen
 import (
 	"bytes"
 	"fmt"
+	"json-stream/reg"
 	"log"
-	"qtpl-generator/reg"
 	"reflect"
 	"strings"
 )
@@ -194,7 +194,14 @@ func replaceTemplate(template, fieldName string) string {
 
 func generateSliceTemplate(typ reflect.Type, fieldName string, f *SrcFile) (string, error) {
 	elemType := typ.Elem()
-	nestedTemplate, err := generateInnerFieldTemplate(elemType, "v", f)
+	var err error
+	var nestedTemplate string
+	if elemType.Kind() == reflect.Struct {
+		nestedTemplate, err = generateInnerFieldTemplate(elemType, "&v", f)
+	} else {
+		nestedTemplate, err = generateInnerFieldTemplate(elemType, "v", f)
+	}
+
 	if err != nil {
 		return "", err
 	}
@@ -226,7 +233,14 @@ func generatePointerTemplate(typ reflect.Type, fieldName string, f *SrcFile) (st
 }
 
 func generateMapTemplate(typ reflect.Type, fieldName string, f *SrcFile) (string, error) {
-	keyTemplate, err := generateInnerFieldTemplate(typ.Key(), "k", f)
+
+	var err error
+	var keyTemplate string
+	if typ.Key().Kind() == reflect.Struct {
+		keyTemplate, err = generateInnerFieldTemplate(typ.Key(), "&k", f)
+	} else {
+		keyTemplate, err = generateInnerFieldTemplate(typ.Key(), "k", f)
+	}
 	if err != nil {
 		return "", err
 	}
@@ -235,10 +249,16 @@ func generateMapTemplate(typ reflect.Type, fieldName string, f *SrcFile) (string
 		keyTemplate = `"` + keyTemplate + `"`
 	}
 
-	valueTemplate, err := generateInnerFieldTemplate(typ.Elem(), "v", f)
+	var valueTemplate string
+	if typ.Elem().Kind() == reflect.Struct {
+		valueTemplate, err = generateInnerFieldTemplate(typ.Elem(), "&v", f)
+	} else {
+		valueTemplate, err = generateInnerFieldTemplate(typ.Elem(), "v", f)
+	}
 	if err != nil {
 		return "", err
 	}
+
 	totalVar := "total" + strings.ReplaceAll(fieldName, ".", "")
 	template := replaceTemplate(mapQTPLFormatInnerTemplate, fieldName)
 	template = strings.ReplaceAll(template, "{keyTemplate}", keyTemplate)
