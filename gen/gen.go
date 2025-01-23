@@ -2,11 +2,14 @@ package gen
 
 import (
 	"bytes"
+	"flag"
 	"gitlab.adtelligent.com/common/shared/log"
 	"qtpl-generator/reg"
 	"regexp"
 	"strings"
 )
+
+var copyFromFeature = flag.Bool("copyFromFeature", false, "Add copyFrom function to structures")
 
 type SrcFile struct {
 	Content     []byte
@@ -35,12 +38,16 @@ func (f *SrcFile) readPackageName() {
 
 func (f *SrcFile) GetStructureFile() (string, error) {
 	var result bytes.Buffer
-	for _, str := range f.Structures {
-		copyFrom, err := f.getCopyFromImplementation(str)
-		if err != nil {
-			return "", err
+	for _, className := range f.Structures {
+		if *copyFromFeature {
+			copyFrom, err := f.getCopyFromImplementation(className)
+			if err != nil {
+				return "", err
+			}
+			result.WriteString(generateCopyFromFile(className, string(copyFrom)))
+
 		}
-		result.WriteString(generateStructureFile(str, string(copyFrom)))
+		result.WriteString(generateMarshalJsonFile(className))
 	}
 
 	header := strings.Replace(structureFileTemplate, "{packageName}", f.PackageName, 1)
@@ -92,9 +99,10 @@ package {packageName}
 
 import (
 	"bytes"
-	"log"
 	"github.com/golang/protobuf/proto"
 	structpb "github.com/golang/protobuf/ptypes/struct"
+	"io"
+	"log"
 )
 
 // Reference imports to suppress errors if they are not otherwise used.

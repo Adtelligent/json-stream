@@ -7,7 +7,10 @@ import (
 	"qtpl-generator/gen"
 )
 
+var prepocessing = flag.Bool("prepocessing", false, "is prepocessing mode")
+
 func main() {
+	flag.Parse()
 	file := os.Args[len(os.Args)-3]
 	importPath := os.Args[len(os.Args)-2]
 	b, err := os.ReadFile(file)
@@ -15,10 +18,7 @@ func main() {
 		log.Fatalf("cant read file. err: %s", err)
 	}
 
-	res := flag.Bool("prepocessing", false, "is prepocessing mode")
-	flag.Parse()
-
-	if *res {
+	if *prepocessing {
 		gen.PreprocessFile(b, importPath)
 		return
 	}

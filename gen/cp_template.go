@@ -63,11 +63,16 @@ func (f *SrcFile) getCopyFromImplementation(structureName string) ([]byte, error
 	return result.Bytes(), nil
 }
 
-func generateStructureFile(className, copyFrom string) string {
-	qtcName := generateQtcName(className)
-	result := strings.ReplaceAll(structureTemplate, "{className}", className)
-	result = strings.ReplaceAll(result, "{qtcName}", qtcName)
+func generateCopyFromFile(className, copyFrom string) string {
+	result := strings.ReplaceAll(copyFromTemplate, "{className}", className)
 	result = strings.ReplaceAll(result, "{copyFrom}", copyFrom)
+	return result
+}
+
+func generateMarshalJsonFile(className string) string {
+	qtcName := generateQtcName(className)
+	result := strings.ReplaceAll(marshalJsonTemplate, "{className}", className)
+	result = strings.ReplaceAll(result, "{qtcName}", qtcName)
 	return result
 }
 
@@ -119,14 +124,19 @@ var pointerCopyTemplate = `
 	}
 `
 
-var structureTemplate = `
+var copyFromTemplate = `
 func (dst *{className}) CopyFrom(src *{className}) {
 	{copyFrom}
-}
+}`
 
-func (dst *{className}) MarshalJSONPB() ([]byte, error) {
+var marshalJsonTemplate = `
+func (dst *{className}) MarshalJson() ([]byte, error) {
 	var bb  bytes.Buffer
 	write{qtcName}(&bb, dst)
 	return bb.Bytes(), nil
+}
+
+func (dst *{className}) WriteJsonTo(w io.Writer)  {
+	write{qtcName}(w, dst)
 }
 `
