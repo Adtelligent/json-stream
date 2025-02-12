@@ -11,8 +11,8 @@ var prepocessing = flag.Bool("prepocessing", false, "is prepocessing mode")
 
 func main() {
 	flag.Parse()
-	file := "test/test.go"
-	importPath := "json-stream/test"
+	file := os.Args[len(os.Args)-3]
+	importPath := os.Args[len(os.Args)-2]
 	b, err := os.ReadFile(file)
 	if err != nil {
 		log.Fatalf("cant read file. err: %s", err)
@@ -23,7 +23,7 @@ func main() {
 		return
 	}
 
-	dstPath := "test/"
+	dstPath := os.Args[len(os.Args)-1]
 	info, err := os.Stat(file)
 	if err != nil {
 		log.Fatalf("%s", err)
