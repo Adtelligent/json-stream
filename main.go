@@ -11,7 +11,7 @@ var prepocessing = flag.Bool("prepocessing", false, "is prepocessing mode")
 
 func main() {
 	flag.Parse()
-	file := os.Args[len(os.Args)-2]
+	file := "openrtb/openrtb.pb.go"
 	b, err := os.ReadFile(file)
 	if err != nil {
 		log.Fatalf("cant read file. err: %s", err)
@@ -25,7 +25,7 @@ func main() {
 		return
 	}
 
-	dstPath := os.Args[len(os.Args)-1]
+	dstPath := "openrtb/"
 	info, err := os.Stat(file)
 	if err != nil {
 		log.Fatalf("%s", err)

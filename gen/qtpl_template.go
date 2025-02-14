@@ -73,16 +73,15 @@ func getWriteJSON(className string, f *SrcFile) (string, error) {
 func getOptionalTemplateFor(className string, field reflect.StructField) string {
 	switch field.Type.Kind() {
 	case reflect.Ptr:
-		return "{% if d.{fieldName} != nil %}\n"
+		return "{% if d.{fieldName} != nil && mask.In(\"{className}.{fieldName}\") %}\n"
 	case reflect.Struct:
-		return "{% if &d.{fieldName} != nil %}\n"
+		return "{% if &d.{fieldName} != nil && mask.In(\"{className}.{fieldName}\") %}\n"
 	case reflect.String, reflect.Slice, reflect.Map, reflect.Array:
-		return "{% if len(d.{fieldName}) != 0  %}\n"
+		return "{% if len(d.{fieldName}) != 0 && mask.In(\"{className}.{fieldName}\")  %}\n"
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64, reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Float32, reflect.Float64:
-		return "{% if d.{fieldName} != 0 %}\n"
+		return "{% if d.{fieldName} != 0 && mask.In(\"{className}.{fieldName}\") %}\n"
 	case reflect.Bool:
-		return "{% if true  %}\n"
-
+		return "{% if mask.In(\"{className}.{fieldName}\")  %}\n"
 	}
 
 	log.Fatalf("unknown field '%s' Type '%s'. In struct %s", field.Name, field.Type, className)
@@ -290,7 +289,7 @@ var sliceQTPLFormatInnerTemplate = `{% code {totalVar} := len({fieldName}) %}
 				{% endfor %}
 			]`
 
-var structQTPLFormatInnerTemplate = `{%= {qtplFunc}({fieldName}) %}`
+var structQTPLFormatInnerTemplate = `{%= {qtplFunc}({fieldName}, mask) %}`
 
 var structpbQTPLFormatTemplate = `
 		{ifOptional}
@@ -320,7 +319,7 @@ var mapQTPLFormatInnerTemplate = `{
 			}`
 
 var qtcFileContentTemplate = `
-	{%% func %[1]s(d *%[2]s) %%}
+	{%% func %[1]s(d *%[2]s, mask FieldsLimiter) %%}
 		%[3]s
 	{%% endfunc %%}
 `

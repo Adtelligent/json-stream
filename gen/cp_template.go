@@ -132,11 +132,21 @@ func (dst *{className}) CopyFrom(src *{className}) {
 var marshalJsonTemplate = `
 func (dst *{className}) MarshalJson() ([]byte, error) {
 	var bb  bytes.Buffer
-	write{qtcName}(&bb, dst)
+	write{qtcName}(&bb, dst, DefaultFieldsLimiter)
 	return bb.Bytes(), nil
 }
 
 func (dst *{className}) WriteJsonTo(w io.Writer)  {
-	write{qtcName}(w, dst)
+	write{qtcName}(w, dst, DefaultFieldsLimiter)
+}
+
+func (dst *{className}) MarshalJsonExtend(mask FieldsLimiter) ([]byte, error) {
+	var bb  bytes.Buffer
+	write{qtcName}(&bb, dst, mask)
+	return bb.Bytes(), nil
+}
+
+func (dst *{className}) WriteJsonToExtend(w io.Writer, mask FieldsLimiter)  {
+	write{qtcName}(w, dst, mask)
 }
 `

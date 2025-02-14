@@ -107,4 +107,18 @@ import (
 var _ = log.Println
 var _ = proto.Clone
 var _ *structpb.Struct
+
+var DefaultFieldsLimiter = &NoOpFieldsLimiter{}
+
+type FieldsLimiter interface {
+	In(path string) bool
+}
+
+type NoOpFieldsLimiter struct {
+	Fields map[string]struct{}
+}
+
+func (m *NoOpFieldsLimiter) In(path string) bool {
+	return true
+}
 `
