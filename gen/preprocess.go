@@ -10,6 +10,7 @@ import (
 
 const inputFileCopyPath = "gen/copy.go"
 const preprocessCopyPath = "reg/preproc.go"
+const packageGen = "package gen"
 
 var structReg = regexp.MustCompile(`type ([A-Z]\w*) struct`)
 var packageReg = regexp.MustCompile(`package\s+(\w+)`)
@@ -41,7 +42,7 @@ func PreprocessFile(content []byte) {
 }
 
 func ChangeInputFilePackageAndSave(filePath []byte) error {
-	newContent := packageReg.ReplaceAll(filePath, []byte("package gen"))
+	newContent := packageReg.ReplaceAll(filePath, []byte(packageGen))
 	if err := os.WriteFile(inputFileCopyPath, newContent, 0644); err != nil {
 		return fmt.Errorf("failed to write file to %s: %w", inputFileCopyPath, err)
 	}
