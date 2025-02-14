@@ -1,4 +1,4 @@
-module json-stream
+module github.com/Adtelligent/json-stream
 
 go 1.22.8
 

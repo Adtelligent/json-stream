@@ -2,12 +2,15 @@ package gen
 
 import (
 	"bytes"
+	"flag"
 	"fmt"
-	"json-stream/reg"
+	"github.com/Adtelligent/json-stream/reg"
 	"log"
 	"reflect"
 	"strings"
 )
+
+var boolToInt = flag.Bool("boolToInt", false, "bool to int generation")
 
 func GetQTPLFile(className string, f *SrcFile) (string, error) {
 	res, err := getWriteJSON(className, f)
@@ -172,6 +175,9 @@ func generateInnerFieldTemplate(typ reflect.Type, fieldName string, f *SrcFile) 
 	case reflect.String:
 		return replaceTemplate(stringQTPLFormatInnerTemplate, fieldName), nil
 	case reflect.Bool:
+		if *boolToInt {
+			return replaceTemplate(boolToIntQTPLFormatInnerTemplate, fieldName), nil
+		}
 		return replaceTemplate(boolQTPLFormatInnerTemplate, fieldName), nil
 	case reflect.Float32, reflect.Float64:
 		return replaceTemplate(floatQTPLFormatInnerTemplate, fieldName), nil
@@ -272,6 +278,7 @@ var intQTPLFormatInnerTemplate = `{%d= int({fieldName}) %}`
 var stringQTPLFormatInnerTemplate = `{%q= {fieldName} %}`
 
 var boolQTPLFormatInnerTemplate = `{% if {fieldName} %} true {% else %} false {% endif %}`
+var boolToIntQTPLFormatInnerTemplate = `{% if {fieldName} %} 1 {% else %} 0 {% endif %}`
 
 var floatQTPLFormatInnerTemplate = `{%f= float64({fieldName}) %}`
 

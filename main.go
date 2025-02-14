@@ -2,7 +2,7 @@ package main
 
 import (
 	"flag"
-	"json-stream/gen"
+	"github.com/Adtelligent/json-stream/gen"
 	"log"
 	"os"
 )

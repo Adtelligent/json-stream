@@ -1,7 +1,11 @@
 DST=test/
-IMPORT_PATH=json-stream/test
+IMPORT_PATH=github.com/Adtelligent/json-stream/test
 SRC=test/test.go
 
+
+runBoolToInt: preprocessing
+	go run main.go -boolToInt $(SRC) $(IMPORT_PATH) $(DST)
+	$(GOPATH)/bin/qtc -dir=$(DST)
 run: preprocessing
 	go run main.go -- $(SRC) $(IMPORT_PATH) $(DST)
 	$(GOPATH)/bin/qtc -dir=$(DST)

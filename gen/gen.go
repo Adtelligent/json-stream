@@ -3,7 +3,7 @@ package gen
 import (
 	"bytes"
 	"flag"
-	"json-stream/reg"
+	"github.com/Adtelligent/json-stream/reg"
 	"log"
 	"regexp"
 	"strings"

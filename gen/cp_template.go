@@ -3,7 +3,7 @@ package gen
 import (
 	"bytes"
 	"fmt"
-	"json-stream/reg"
+	"github.com/Adtelligent/json-stream/reg"
 	"reflect"
 	"strings"
 )
