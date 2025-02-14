@@ -15,4 +15,4 @@ clear:
 	rm -f $(DST)*.gen.qtpl.go
 	rm -f $(DST)*.gen.qtpl
 	rm -f reg/preproc.go
-	rm -f result/copy.go
+	rm -f copy/copy.go

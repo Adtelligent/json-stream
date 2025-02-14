@@ -8,7 +8,8 @@ import (
 	"strings"
 )
 
-const inputFileCopyPath = "gen/copy.go"
+const copyDir = "copy"
+const inputFileCopyPath = "copy/copy.go"
 const preprocessCopyPath = "reg/preproc.go"
 const packageGen = "package gen"
 
@@ -18,7 +19,7 @@ var fileTemplate = `
 package reg
 
 import (
-	"github.com/Adtelligent/json-stream/gen"
+	"github.com/Adtelligent/json-stream/copy"
 )
 
 func init() {
@@ -30,7 +31,7 @@ func PreprocessFile(content []byte) {
 	var res []string
 	for _, match := range structReg.FindAllSubmatch(content, -1) {
 		structName := string(match[1])
-		res = append(res, fmt.Sprintf(`registerType((*%s.%s)(nil))`, "result", structName))
+		res = append(res, fmt.Sprintf(`registerType((*%s.%s)(nil))`, copyDir, structName))
 	}
 
 	finalResult := strings.Replace(fileTemplate, "{result}", strings.Join(res, "\n\t"), -1)
@@ -42,7 +43,12 @@ func PreprocessFile(content []byte) {
 }
 
 func ChangeInputFilePackageAndSave(filePath []byte) error {
-	newContent := packageReg.ReplaceAll(filePath, []byte(packageGen))
+	newContent := packageReg.ReplaceAll(filePath, []byte("package copy"))
+
+	if err := os.MkdirAll(copyDir, os.ModePerm); err != nil {
+		return fmt.Errorf("failed to create directory 'result': %w", err)
+	}
+
 	if err := os.WriteFile(inputFileCopyPath, newContent, 0644); err != nil {
 		return fmt.Errorf("failed to write file to %s: %w", inputFileCopyPath, err)
 	}
