@@ -15,7 +15,6 @@ type SrcFile struct {
 	Content     []byte
 	Structures  []string
 	PackageName string
-	ImportPath  string
 }
 
 func (f *SrcFile) init() {
@@ -69,10 +68,9 @@ func (f *SrcFile) GetQTPLFile() (string, error) {
 	return strings.Replace(qtcFileTemplate, "{content}", bb.String(), -1), nil
 }
 
-func NewWithContent(b []byte, importPath string) *SrcFile {
+func NewWithContent(b []byte) *SrcFile {
 	f := &SrcFile{
-		Content:    b,
-		ImportPath: importPath,
+		Content: b,
 	}
 	f.init()
 

@@ -11,15 +11,17 @@ var prepocessing = flag.Bool("prepocessing", false, "is prepocessing mode")
 
 func main() {
 	flag.Parse()
-	file := os.Args[len(os.Args)-3]
-	importPath := os.Args[len(os.Args)-2]
+	file := os.Args[len(os.Args)-2]
 	b, err := os.ReadFile(file)
 	if err != nil {
 		log.Fatalf("cant read file. err: %s", err)
 	}
 
+	if err := gen.ChangeInputFilePackageAndSave(b); err != nil {
+		log.Fatalf("cant read file. err: %s", err)
+	}
 	if *prepocessing {
-		gen.PreprocessFile(b, importPath)
+		gen.PreprocessFile(b)
 		return
 	}
 
@@ -29,7 +31,7 @@ func main() {
 		log.Fatalf("%s", err)
 	}
 
-	f := gen.NewWithContent(b, importPath)
+	f := gen.NewWithContent(b)
 
 	structuresFile, err := f.GetStructureFile()
 	if err != nil {
