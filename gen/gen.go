@@ -60,10 +60,11 @@ func (f *SrcFile) GetStructureFile() (string, error) {
 		}
 	}
 
-	mapCode := "var FieldTypeMap = map[string]reflect.Type{\n" +
+	mapCode := "\nvar fieldTypeMap = map[string]reflect.Type{\n" +
 		strings.Join(mapEntries, "\n") +
 		"\n}\n"
-	result.WriteString("\n" + mapCode)
+	result.WriteString(mapCode)
+	result.WriteString(getTypeMapMethodTemplate)
 
 	header := strings.Replace(structureFileTemplate, "{packageName}", f.PackageName, 1)
 
@@ -143,3 +144,8 @@ func (m *NoOpFieldsLimiter) In(path string) bool {
 	return true
 }
 `
+
+var getTypeMapMethodTemplate = `func GetType(path string) (reflect.Type, bool) {
+	t, ok := fieldTypeMap[path]
+	return t, ok
+}`

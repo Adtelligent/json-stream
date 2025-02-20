@@ -11,7 +11,6 @@ import (
 const copyDir = "copy"
 const inputFileCopyPath = "copy/copy.go"
 const preprocessCopyPath = "reg/preproc.go"
-const packageGen = "package gen"
 
 var structReg = regexp.MustCompile(`type ([A-Z]\w*) struct`)
 var packageReg = regexp.MustCompile(`package\s+(\w+)`)
@@ -54,4 +53,16 @@ func ChangeInputFilePackageAndSave(filePath []byte) error {
 	}
 
 	return nil
+}
+
+func RemovePackageDeclaration(content string) string {
+	lines := strings.Split(content, "\n")
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "package ") {
+			lines = append(lines[:i], lines[i+1:]...)
+			break
+		}
+	}
+	return strings.Join(lines, "\n")
 }

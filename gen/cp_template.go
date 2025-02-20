@@ -29,7 +29,7 @@ func (f *SrcFile) getCopyFromImplementation(structureName string) ([]byte, error
 			`, field.Name)
 		case reflect.Struct:
 			template = fmt.Sprintf(`
-				dst.%[1]s.CopyFrom(&src.%[1]s)
+				src.%[1]s = dst.%[1]s.Copy(limiter)
 			`, field.Name)
 		case reflect.Map:
 			className := field.Type.String()
@@ -154,10 +154,10 @@ var pointerCopyTemplate = `	if src.%[1]s == nil {
 `
 
 var copyFromTemplate = `
-func (dst *{className}) Copy(limiter FieldsLimiter) *{className} {
-	src := new({className})
+func (src *{className}) Copy(limiter FieldsLimiter) *{className} {
+	dst := new({className})
 {copyFunction}
-	return src
+	return dst
 }`
 
 var marshalJsonTemplate = `
