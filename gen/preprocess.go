@@ -55,6 +55,16 @@ func ChangeInputFilePackageAndSave(filePath []byte) error {
 	return nil
 }
 
+func RemovePreprocessFiles() error {
+	if err := os.Remove(preprocessCopyPath); err != nil {
+		return err
+	}
+	if err := os.Remove(inputFileCopyPath); err != nil {
+		return err
+	}
+	return nil
+}
+
 func RemovePackageDeclaration(content string) string {
 	lines := strings.Split(content, "\n")
 	for i, line := range lines {

@@ -54,6 +54,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to write generated qtpl file. err: %s", err)
 	}
+	err = gen.RemovePreprocessFiles()
+	if err != nil {
+		log.Fatalf("failed to remove preprocess files. err: %s", err)
+	}
 }
 
 func readCombinedContent(path string) ([]byte, os.FileInfo, error) {

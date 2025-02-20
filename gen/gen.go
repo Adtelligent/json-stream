@@ -38,6 +38,7 @@ func (f *SrcFile) readPackageName() {
 
 func (f *SrcFile) GetStructureFile() (string, error) {
 	var result bytes.Buffer
+	var body bytes.Buffer
 	var mapEntries []string
 	for _, className := range f.Structures {
 		if *copyFunctionsFeature {
@@ -45,10 +46,10 @@ func (f *SrcFile) GetStructureFile() (string, error) {
 			if err != nil {
 				return "", err
 			}
-			result.WriteString(generateCopyFunction(className, string(copyFunction)))
+			body.WriteString(generateCopyFunction(className, string(copyFunction)))
 
 		}
-		result.WriteString(generateMarshalJsonFile(className))
+		body.WriteString(generateMarshalJsonFile(className))
 		t := reg.TypeRegistry[className]
 		for i := 0; i < t.NumField(); i++ {
 			field := t.Field(i)
@@ -60,15 +61,14 @@ func (f *SrcFile) GetStructureFile() (string, error) {
 		}
 	}
 
+	result.WriteString(strings.Replace(structureFileTemplate, "{packageName}", f.PackageName, 1))
 	mapCode := "\nvar fieldTypeMap = map[string]reflect.Type{\n" +
 		strings.Join(mapEntries, "\n") +
 		"\n}\n"
 	result.WriteString(mapCode)
 	result.WriteString(getTypeMapMethodTemplate)
-
-	header := strings.Replace(structureFileTemplate, "{packageName}", f.PackageName, 1)
-
-	return header + "\n" + result.String(), nil
+	result.Write(body.Bytes())
+	return result.String(), nil
 }
 
 func (f *SrcFile) GetQTPLFile() (string, error) {
@@ -148,4 +148,5 @@ func (m *NoOpFieldsLimiter) In(path string) bool {
 var getTypeMapMethodTemplate = `func GetType(path string) (reflect.Type, bool) {
 	t, ok := fieldTypeMap[path]
 	return t, ok
-}`
+}
+`

@@ -58,14 +58,12 @@ preprocessing: clear
 ```bash
 make clear
 ```
-This target removes generated files and temporary sources:
+This target removes generated files:
 ```makefile
 clear:
 	rm -f $(DST)*.gen.go
 	rm -f $(DST)*.gen.qtpl.go
 	rm -f $(DST)*.gen.qtpl
-	rm -f reg/preproc.go
-	rm -f copy/copy.go
 ```
 
 ### Flags
