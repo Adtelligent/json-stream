@@ -60,23 +60,17 @@ func (f *SrcFile) getCopyFromImplementation(structureName string) ([]byte, error
 			template = fmt.Sprintf("\tdst.%s = src.%s\n", field.Name, field.Name)
 		}
 
-		result.WriteString(wrapCpTemplateWithCondition(structureName, template, field))
+		result.WriteString(wrapCpTemplateWithRedefiner(structureName, template, field))
 	}
 
 	return result.Bytes(), nil
 }
 
-func wrapCpTemplateWithCondition(className string, template string, field reflect.StructField) string {
+func wrapCpTemplateWithRedefiner(className string, template string, field reflect.StructField) string {
 	fieldName := field.Name
-	var condition string
-
-	if field.Type.Kind() == reflect.Ptr {
-		condition = fmt.Sprintf("!redefiner.Redefine(\"%[2]s.%[1]s\", unsafe.Pointer(src.%[1]s), unsafe.Pointer(dst.%[1]s))", fieldName, className)
-	} else {
-		condition = fmt.Sprintf("!redefiner.Redefine(\"%[2]s.%[1]s\", unsafe.Pointer(&src.%[1]s), unsafe.Pointer(&dst.%[1]s))", fieldName, className)
-	}
 	indentedTemplate := indentLines(template, "\t")
-	return fmt.Sprintf("\tif %s {\n%s\t}\n", condition, indentedTemplate)
+
+	return fmt.Sprintf("\tif !redefiner.Redefine(\"%[2]s.%[1]s\", unsafe.Pointer(&src.%[1]s), unsafe.Pointer(&dst.%[1]s)){\n%[3]s\t}\n", fieldName, className, indentedTemplate)
 }
 
 func indentLines(s, prefix string) string {
