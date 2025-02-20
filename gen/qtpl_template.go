@@ -5,7 +5,6 @@ import (
 	"flag"
 	"fmt"
 	"github.com/Adtelligent/json-stream/reg"
-	"log"
 	"reflect"
 	"strings"
 )
@@ -70,33 +69,32 @@ func getWriteJSON(className string, f *SrcFile) (string, error) {
 	return getStructureJSON(className, f)
 }
 
-func getOptionalTemplateFor(className string, field reflect.StructField) string {
+func wrapTemplateWithCondition(template string, field reflect.StructField) string {
+	fieldName := field.Name
+	var condition string
+
 	switch field.Type.Kind() {
 	case reflect.Ptr:
-		return "{% if d.{fieldName} != nil && mask.In(\"{className}.{fieldName}\") %}\n"
+		condition = fmt.Sprintf("d.%s != nil", fieldName)
 	case reflect.Struct:
-		return "{% if &d.{fieldName} != nil && mask.In(\"{className}.{fieldName}\") %}\n"
+		condition = fmt.Sprintf("&d.%s != nil", fieldName)
 	case reflect.String, reflect.Slice, reflect.Map, reflect.Array:
-		return "{% if len(d.{fieldName}) != 0 && mask.In(\"{className}.{fieldName}\")  %}\n"
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64, reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Float32, reflect.Float64:
-		return "{% if d.{fieldName} != 0 && mask.In(\"{className}.{fieldName}\") %}\n"
-	case reflect.Bool:
-		return "{% if mask.In(\"{className}.{fieldName}\")  %}\n"
+		condition = fmt.Sprintf("len(d.%s) != 0", fieldName)
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
+		reflect.Float32, reflect.Float64:
+		condition = fmt.Sprintf("d.%s != 0", fieldName)
+	default:
+		return template
 	}
-
-	log.Fatalf("unknown field '%s' Type '%s'. In struct %s", field.Name, field.Type, className)
-	return ""
-
+	return fmt.Sprintf("{%% if %s %%}%s{%% endif %%}\n", condition, template)
 }
 
 func replaceMacros(template string, className string, field reflect.StructField) string {
-	optTempl := getOptionalTemplateFor(className, field)
-	template = strings.Replace(template, "{ifOptional}", optTempl, -1)
-	template = strings.Replace(template, "{endIfOptional}", "{% endif %}\n", -1)
+	template = wrapTemplateWithCondition(template, field)
 	template = strings.Replace(template, "{fieldName}", field.Name, -1)
 	template = strings.Replace(template, "{className}", className, -1)
 	template = strings.Replace(template, "{qtplFunc}", generateQtcName(getPrintableClassName(field.Type.String())), -1)
-
 	return template
 }
 
@@ -157,11 +155,10 @@ func formatFieldName(typ reflect.Type, fieldName string) string {
 
 func formatTemplate(jsonName, template string) string {
 	return strings.ReplaceAll(strings.ReplaceAll(`
-		{ifOptional}
 			{% if comma %} , {% endif %}
-			"{jsonFieldName}" : {innerTemplate}
+			"{jsonFieldName}":{innerTemplate}
 			{% code comma = true %}
-		{endIfOptional}`,
+		`,
 		"{innerTemplate}", template),
 		"{jsonFieldName}", jsonName)
 }
@@ -289,10 +286,9 @@ var sliceQTPLFormatInnerTemplate = `{% code {totalVar} := len({fieldName}) %}
 				{% endfor %}
 			]`
 
-var structQTPLFormatInnerTemplate = `{%= {qtplFunc}({fieldName}, mask) %}`
+var structQTPLFormatInnerTemplate = `{%= {qtplFunc}({fieldName}) %}`
 
 var structpbQTPLFormatTemplate = `
-		{ifOptional}
 			{% code
 				extB, err := {fieldName}.MarshalJSON()
 				if err != nil {
@@ -301,7 +297,6 @@ var structpbQTPLFormatTemplate = `
 			%}
 			{%z= extB %}
 			{% code comma = true %}
-		{endIfOptional}
 `
 
 var pointerQTPLFormatInnerTemplate = `{nestedTemplate}`
@@ -312,14 +307,14 @@ var mapQTPLFormatInnerTemplate = `{
                     i := 0
                 %}
 				{% for k, v := range {fieldName} %}
-					{keyTemplate}: {valueTemplate}
+					{keyTemplate}:{valueTemplate}
 					{% code i++ %}
 					{% if i < {totalVar} %} , {% endif %}
 				{% endfor %}
 			}`
 
 var qtcFileContentTemplate = `
-	{%% func %[1]s(d *%[2]s, mask FieldsLimiter) %%}
+	{%% func %[1]s(d *%[2]s) %%}
 		%[3]s
 	{%% endfunc %%}
 `

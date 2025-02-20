@@ -1,12 +1,14 @@
 DST ?= test/
 SRC ?= /tmp/input.go
 
-runBoolToInt: preprocessing
-	go run main.go -boolToInt $(SRC) $(DST)
+runWithFlags: preprocessing
+	go run main.go -boolToInt -copyFunctionsFeature $(SRC) $(DST)
 	$(GOPATH)/bin/qtc -dir=$(DST)
+
 run: preprocessing
 	go run main.go -- $(SRC) $(DST)
 	$(GOPATH)/bin/qtc -dir=$(DST)
+
 preprocessing: clear
 	go run main.go -prepocessing $(SRC) $(DST)
 

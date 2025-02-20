@@ -12,6 +12,7 @@ func (f *SrcFile) getCopyFromImplementation(structureName string) ([]byte, error
 	str := reg.TypeRegistry[structureName]
 
 	var result bytes.Buffer
+	var template string
 	for i := 0; i < str.NumField(); i++ {
 		field := str.Field(i)
 		if !field.IsExported() {
@@ -21,51 +22,87 @@ func (f *SrcFile) getCopyFromImplementation(structureName string) ([]byte, error
 		case reflect.Chan, reflect.Func, reflect.UnsafePointer, reflect.Interface:
 			continue
 		case reflect.Array:
-			result.WriteString(fmt.Sprintf(`
+			template = fmt.Sprintf(`
 				for i := range src.%[1]s {
 					dst.%[1]s[i] = src.%[1]s[i]
 				}
-			`, field.Name))
+			`, field.Name)
 		case reflect.Struct:
-			result.WriteString(fmt.Sprintf(`
+			template = fmt.Sprintf(`
 				dst.%[1]s.CopyFrom(&src.%[1]s)
-			`, field.Name))
+			`, field.Name)
 		case reflect.Map:
 			className := field.Type.String()
-			if field.Type.Elem().Kind() == reflect.Ptr && field.Type.Elem().Elem().Kind() == reflect.Struct {
-				className = strings.Replace(className, f.PackageName+".", "", 1)
+			if idx := strings.LastIndex(className, "."); idx != -1 {
+				className = className[idx+1:]
 			}
-			result.WriteString(fmt.Sprintf(mapCopyTemplate, field.Name, className))
+			template = fmt.Sprintf(mapCopyTemplate, field.Name, className)
 		case reflect.Slice:
 			if strings.HasPrefix(field.Type.String(), "[]*") {
 				className := strings.Replace(field.Type.String(), "[]*", "", -1)
-				if field.Type.Elem().Elem().Kind() == reflect.Struct {
-					className = strings.Replace(className, f.PackageName+".", "", 1)
+				if idx := strings.LastIndex(className, "."); idx != -1 {
+					className = className[idx+1:]
 				}
-				result.WriteString(fmt.Sprintf(sliceOfPointerCopyTemplate, field.Name, className))
+				template = fmt.Sprintf(sliceOfPointerCopyTemplate, field.Name, className)
 			} else {
-				result.WriteString(fmt.Sprintf("dst.%[1]s = append(dst.%[1]s[:0], src.%[1]s...)\n	", field.Name))
+				template = fmt.Sprintf("\tdst.%[1]s = append(dst.%[1]s[:0], src.%[1]s...)\n", field.Name)
 			}
 		case reflect.Ptr:
 			if field.Type.Elem().String() == "structpb.Struct" {
-				result.WriteString(fmt.Sprintf(structpbCopyTemplate, field.Name))
+				template = fmt.Sprintf(structpbCopyTemplate, field.Name)
 			} else if field.Type.Elem().Kind() == reflect.Struct {
 				fieldType := strings.Replace(field.Type.Elem().Name(), f.PackageName+".", "", 1)
-				result.WriteString(fmt.Sprintf(pointerCopyTemplate, field.Name, fieldType))
+				template = fmt.Sprintf(pointerCopyTemplate, field.Name, fieldType)
 			} else {
-				result.WriteString(fmt.Sprintf("dst.%s = src.%s\n	", field.Name, field.Name))
+				template = fmt.Sprintf("\tdst.%s = src.%s\n", field.Name, field.Name)
 			}
 		default:
-			result.WriteString(fmt.Sprintf("dst.%s = src.%s\n	", field.Name, field.Name))
+			template = fmt.Sprintf("\tdst.%s = src.%s\n", field.Name, field.Name)
 		}
+
+		result.WriteString(wrapCpTemplateWithCondition(structureName, template, field))
 	}
 
 	return result.Bytes(), nil
 }
 
-func generateCopyFromFile(className, copyFrom string) string {
+func wrapCpTemplateWithCondition(className string, template string, field reflect.StructField) string {
+	fieldName := field.Name
+	var condition string
+
+	switch field.Type.Kind() {
+	case reflect.Ptr:
+		condition = fmt.Sprintf("src.%[1]s != nil && limiter.In(\"%[2]s.%[1]s\")", fieldName, className)
+	case reflect.Struct:
+		condition = fmt.Sprintf("&src.%[1]s != nil && limiter.In(\"%[2]s.%[1]s\")", fieldName, className)
+	case reflect.String, reflect.Slice, reflect.Map, reflect.Array:
+		condition = fmt.Sprintf("len(src.%[1]s) != 0 && limiter.In(\"%[2]s.%[1]s\")", fieldName, className)
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
+		reflect.Float32, reflect.Float64:
+		condition = fmt.Sprintf("src.%[1]s != 0 && limiter.In(\"%[2]s.%[1]s\")", fieldName, className)
+	case reflect.Bool:
+		condition = fmt.Sprintf("limiter.In(\"%[2]s.%[1]s\")", fieldName, className)
+	default:
+		return template
+	}
+	indentedTemplate := indentLines(template, "\t")
+	return fmt.Sprintf("\tif %s {\n%s\t}\n", condition, indentedTemplate)
+}
+
+func indentLines(s, prefix string) string {
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		if line != "" {
+			lines[i] = prefix + line
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+func generateCopyFunction(className, copyFunction string) string {
 	result := strings.ReplaceAll(copyFromTemplate, "{className}", className)
-	result = strings.ReplaceAll(result, "{copyFrom}", copyFrom)
+	result = strings.ReplaceAll(result, "{copyFunction}", copyFunction)
 	return result
 }
 
@@ -80,8 +117,7 @@ func generateQtcName(className string) string {
 	return strings.ToLower(className[:1]) + className[1:] + "JSON"
 }
 
-var mapCopyTemplate = `
-	if len(src.%[1]s) == 0 {
+var mapCopyTemplate = `	if len(src.%[1]s) == 0 {
 		if len(dst.%[1]s) != 0 {
 			dst.%[1]s = make(%[2]s, len(dst.%[1]s))
 		}
@@ -92,61 +128,46 @@ var mapCopyTemplate = `
 			dst.%[1]s[k] = v
 		}
 	}
-	`
+`
 
-var sliceOfPointerCopyTemplate = `
-	dst.%[1]s = dst.%[1]s[:0]
+var sliceOfPointerCopyTemplate = `	dst.%[1]s = dst.%[1]s[:0]
 	for _, d := range src.%[1]s {
 		if d == nil {
 			dst.%[1]s = append(dst.%[1]s, nil)
 		} else {
-			temp := new(%[2]s)
-			temp.CopyFrom(d)
+			temp := d.Copy(limiter)
 			dst.%[1]s = append(dst.%[1]s, temp)
 		}
 	}
 `
-var structpbCopyTemplate = `
-	if src.%[1]s == nil {
+var structpbCopyTemplate = `	if src.%[1]s == nil {
 		dst.%[1]s = nil
 	} else {
 		dst.%[1]s = proto.Clone(src.%[1]s).(*structpb.Struct)
 	}
 `
-var pointerCopyTemplate = `
-	if src.%[1]s == nil {
+var pointerCopyTemplate = `	if src.%[1]s == nil {
 		dst.%[1]s = nil
 	} else {
-		if dst.%[1]s == nil {
-			dst.%[1]s = new(%[2]s)
-		}
-		dst.%[1]s.CopyFrom(src.%[1]s)
+		dst.%[1]s = src.%[1]s.Copy(limiter)
 	}
 `
 
 var copyFromTemplate = `
-func (dst *{className}) CopyFrom(src *{className}) {
-	{copyFrom}
+func (dst *{className}) Copy(limiter FieldsLimiter) *{className} {
+	src := new({className})
+{copyFunction}
+	return src
 }`
 
 var marshalJsonTemplate = `
 func (dst *{className}) MarshalJson() ([]byte, error) {
 	var bb  bytes.Buffer
-	write{qtcName}(&bb, dst, DefaultFieldsLimiter)
+	write{qtcName}(&bb, dst)
 	return bb.Bytes(), nil
 }
 
 func (dst *{className}) WriteJsonTo(w io.Writer)  {
-	write{qtcName}(w, dst, DefaultFieldsLimiter)
-}
-
-func (dst *{className}) MarshalJsonExtend(mask FieldsLimiter) ([]byte, error) {
-	var bb  bytes.Buffer
-	write{qtcName}(&bb, dst, mask)
-	return bb.Bytes(), nil
-}
-
-func (dst *{className}) WriteJsonToExtend(w io.Writer, mask FieldsLimiter)  {
-	write{qtcName}(w, dst, mask)
+	write{qtcName}(w, dst)
 }
 `

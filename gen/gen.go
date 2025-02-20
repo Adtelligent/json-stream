@@ -3,13 +3,14 @@ package gen
 import (
 	"bytes"
 	"flag"
+	"fmt"
 	"github.com/Adtelligent/json-stream/reg"
 	"log"
 	"regexp"
 	"strings"
 )
 
-var copyFromFeature = flag.Bool("copyFromFeature", false, "Add copyFrom function to structures")
+var copyFunctionsFeature = flag.Bool("copyFunctionsFeature", true, "Add copy function to structures")
 
 type SrcFile struct {
 	Content     []byte
@@ -37,17 +38,32 @@ func (f *SrcFile) readPackageName() {
 
 func (f *SrcFile) GetStructureFile() (string, error) {
 	var result bytes.Buffer
+	var mapEntries []string
 	for _, className := range f.Structures {
-		if *copyFromFeature {
-			copyFrom, err := f.getCopyFromImplementation(className)
+		if *copyFunctionsFeature {
+			copyFunction, err := f.getCopyFromImplementation(className)
 			if err != nil {
 				return "", err
 			}
-			result.WriteString(generateCopyFromFile(className, string(copyFrom)))
+			result.WriteString(generateCopyFunction(className, string(copyFunction)))
 
 		}
 		result.WriteString(generateMarshalJsonFile(className))
+		t := reg.TypeRegistry[className]
+		for i := 0; i < t.NumField(); i++ {
+			field := t.Field(i)
+			if !field.IsExported() {
+				continue
+			}
+			entry := fmt.Sprintf("\t\"%[1]s.%[2]s\": reflect.TypeOf(%[1]s{}.%[2]s),", className, field.Name, className, field.Name)
+			mapEntries = append(mapEntries, entry)
+		}
 	}
+
+	mapCode := "var FieldTypeMap = map[string]reflect.Type{\n" +
+		strings.Join(mapEntries, "\n") +
+		"\n}\n"
+	result.WriteString("\n" + mapCode)
 
 	header := strings.Replace(structureFileTemplate, "{packageName}", f.PackageName, 1)
 
@@ -101,12 +117,17 @@ import (
 	structpb "github.com/golang/protobuf/ptypes/struct"
 	"io"
 	"log"
+	"reflect"
+
 )
 
 // Reference imports to suppress errors if they are not otherwise used.
 var _ = log.Println
 var _ = proto.Clone
 var _ *structpb.Struct
+var _ = reflect.Value{}
+
+
 
 var DefaultFieldsLimiter = &NoOpFieldsLimiter{}
 
