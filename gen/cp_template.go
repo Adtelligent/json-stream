@@ -29,7 +29,7 @@ func (f *SrcFile) getCopyFromImplementation(structureName string) ([]byte, error
 			`, field.Name)
 		case reflect.Struct:
 			template = fmt.Sprintf(`
-				src.%[1]s = dst.%[1]s.Copy(limiter)
+				src.%[1]s = dst.%[1]s.Copy(redefiner)
 			`, field.Name)
 		case reflect.Map:
 			className := field.Type.String()
@@ -70,21 +70,10 @@ func wrapCpTemplateWithCondition(className string, template string, field reflec
 	fieldName := field.Name
 	var condition string
 
-	switch field.Type.Kind() {
-	case reflect.Ptr:
-		condition = fmt.Sprintf("src.%[1]s != nil && limiter.In(\"%[2]s.%[1]s\")", fieldName, className)
-	case reflect.Struct:
-		condition = fmt.Sprintf("&src.%[1]s != nil && limiter.In(\"%[2]s.%[1]s\")", fieldName, className)
-	case reflect.String, reflect.Slice, reflect.Map, reflect.Array:
-		condition = fmt.Sprintf("len(src.%[1]s) != 0 && limiter.In(\"%[2]s.%[1]s\")", fieldName, className)
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
-		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
-		reflect.Float32, reflect.Float64:
-		condition = fmt.Sprintf("src.%[1]s != 0 && limiter.In(\"%[2]s.%[1]s\")", fieldName, className)
-	case reflect.Bool:
-		condition = fmt.Sprintf("limiter.In(\"%[2]s.%[1]s\")", fieldName, className)
-	default:
-		return template
+	if field.Type.Kind() == reflect.Ptr {
+		condition = fmt.Sprintf("!redefiner.Redefine(\"%[2]s.%[1]s\", unsafe.Pointer(src.%[1]s), unsafe.Pointer(dst.%[1]s))", fieldName, className)
+	} else {
+		condition = fmt.Sprintf("!redefiner.Redefine(\"%[2]s.%[1]s\", unsafe.Pointer(&src.%[1]s), unsafe.Pointer(&dst.%[1]s))", fieldName, className)
 	}
 	indentedTemplate := indentLines(template, "\t")
 	return fmt.Sprintf("\tif %s {\n%s\t}\n", condition, indentedTemplate)
@@ -135,7 +124,7 @@ var sliceOfPointerCopyTemplate = `	dst.%[1]s = dst.%[1]s[:0]
 		if d == nil {
 			dst.%[1]s = append(dst.%[1]s, nil)
 		} else {
-			temp := d.Copy(limiter)
+			temp := d.Copy(redefiner)
 			dst.%[1]s = append(dst.%[1]s, temp)
 		}
 	}
@@ -149,12 +138,12 @@ var structpbCopyTemplate = `	if src.%[1]s == nil {
 var pointerCopyTemplate = `	if src.%[1]s == nil {
 		dst.%[1]s = nil
 	} else {
-		dst.%[1]s = src.%[1]s.Copy(limiter)
+		dst.%[1]s = src.%[1]s.Copy(redefiner)
 	}
 `
 
 var copyFromTemplate = `
-func (src *{className}) Copy(limiter FieldsLimiter) *{className} {
+func (src *{className}) Copy(redefiner FieldRedefiner) *{className} {
 	dst := new({className})
 {copyFunction}
 	return dst

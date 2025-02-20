@@ -119,29 +119,27 @@ import (
 	"io"
 	"log"
 	"reflect"
-
+	"unsafe"
 )
 
 // Reference imports to suppress errors if they are not otherwise used.
 var _ = log.Println
 var _ = proto.Clone
 var _ *structpb.Struct
-var _ = reflect.Value{}
+var _ reflect.Type
+var _ unsafe.Pointer
 
 
+var DefaultFieldsRedefiner = &NoOpFieldRedefiner{}
 
-var DefaultFieldsLimiter = &NoOpFieldsLimiter{}
-
-type FieldsLimiter interface {
-	In(path string) bool
+type FieldRedefiner interface {
+	 Redefine(path string, src unsafe.Pointer, dst unsafe.Pointer) bool
 }
 
-type NoOpFieldsLimiter struct {
-	Fields map[string]struct{}
-}
+type NoOpFieldRedefiner struct {}
 
-func (m *NoOpFieldsLimiter) In(path string) bool {
-	return true
+func (m *NoOpFieldRedefiner) Redefine(path string, src unsafe.Pointer, dst unsafe.Pointer) bool {
+	return false
 }
 `
 

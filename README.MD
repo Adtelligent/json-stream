@@ -7,7 +7,7 @@ This library provides a fast and efficient solution for JSON marshaling in Golan
 - Custom handling for `structpb.Struct`
 - Optional preprocessing mode for advanced control
 - Ability to generate copy functions for structures with customizable field selection:
-  - The generated copy functions accept a limiter (FieldsLimiter interface) that allows you to specify which fields should be copied.
+  - The generated copy functions accept a redefiner (FieldRedefiner interface) that allows you to specify how field values should be redefined.
 - Flag boolToInt to automatically generate conversion logic for boolean types into integers
 
 ## Getting Started
@@ -70,26 +70,23 @@ clear:
 The generator supports the following flags:
 - `-prepocessing` (boolean): Enable preprocessing mode for additional setup before code generation.
 - `-boolToInt` (boolean): Enable the conversion of boolean types to integers in the generated code.
-- `-copyFunctionsFeature` (boolean): Generate copy functions for structures. These functions accept a limiter—an implementation of the `FieldsLimiter` interface—that determines which fields should be copied.
+- `-copyFunctionsFeature` (boolean): Generate copy functions for structures. These functions accept a limiter—an implementation of the `FieldsRedefiner` interface—that determines which fields should be copied.
 
 ### Customizing Field Copying
-You can control which fields are copied by implementing the `FieldsLimiter` interface. The default implementation is shown below:
+You can control which fields are copied by implementing the `FieldsRedefiner` interface. The default implementation is shown below:
 ```go
-var DefaultFieldsLimiter = &NoOpFieldsLimiter{}
+var DefaultFieldsRedefiner = &NoOpFieldRedefiner{}
 
-type FieldsLimiter interface {
-	In(path string) bool
+type FieldRedefiner interface {
+Redefine(path string, src unsafe.Pointer, dst unsafe.Pointer) bool
 }
 
-type NoOpFieldsLimiter struct {
-	Fields map[string]struct{}
-}
+type NoOpFieldRedefiner struct {}
 
-func (m *NoOpFieldsLimiter) In(path string) bool {
-	return true
+func (m *NoOpFieldRedefiner) Redefine(path string, src unsafe.Pointer, dst unsafe.Pointer) bool {
+return false
 }
 ```
-Implement your own version of FieldsLimiter if you need to set conditions on which fields are copied.
 
 ### Supported Field Types
 The library supports JSON marshaling for the following field types:
