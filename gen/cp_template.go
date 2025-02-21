@@ -5,8 +5,11 @@ import (
 	"fmt"
 	"github.com/Adtelligent/json-stream/reg"
 	"reflect"
+	"regexp"
 	"strings"
 )
+
+var regexpForPackage = regexp.MustCompile(`\b\w+\.`)
 
 func (f *SrcFile) getCopyFromImplementation(structureName string) ([]byte, error) {
 	str := reg.TypeRegistry[structureName]
@@ -28,21 +31,20 @@ func (f *SrcFile) getCopyFromImplementation(structureName string) ([]byte, error
 				}
 			`, field.Name)
 		case reflect.Struct:
-			template = fmt.Sprintf(`
-				src.%[1]s = dst.%[1]s.Copy(redefiner)
-			`, field.Name)
+			template = fmt.Sprintf("\tdst.%[1]s = src.%[1]s.copy(redefiner, append(path, []byte(\".%[1]s\")...))\n", field.Name)
 		case reflect.Map:
+			valueType := field.Type.Elem()
 			className := field.Type.String()
-			if idx := strings.LastIndex(className, "."); idx != -1 {
-				className = className[idx+1:]
+			if valueType.Kind() == reflect.Ptr && valueType.Elem().Kind() == reflect.Struct {
+				className = regexpForPackage.ReplaceAllString(className, "")
+				template = fmt.Sprintf(mapCopyTemplateForPointer, field.Name, className)
+			} else {
+				template = fmt.Sprintf(mapCopyTemplate, field.Name, className)
 			}
-			template = fmt.Sprintf(mapCopyTemplate, field.Name, className)
 		case reflect.Slice:
-			if strings.HasPrefix(field.Type.String(), "[]*") {
-				className := strings.Replace(field.Type.String(), "[]*", "", -1)
-				if idx := strings.LastIndex(className, "."); idx != -1 {
-					className = className[idx+1:]
-				}
+			elemType := field.Type.Elem()
+			if elemType.Kind() == reflect.Ptr && elemType.Elem().Kind() == reflect.Struct {
+				className := elemType.Elem().Name()
 				template = fmt.Sprintf(sliceOfPointerCopyTemplate, field.Name, className)
 			} else {
 				template = fmt.Sprintf("\tdst.%[1]s = append(dst.%[1]s[:0], src.%[1]s...)\n", field.Name)
@@ -70,7 +72,7 @@ func wrapCpTemplateWithRedefiner(className string, template string, field reflec
 	fieldName := field.Name
 	indentedTemplate := indentLines(template, "\t")
 
-	return fmt.Sprintf("\tif !redefiner.Redefine(\"%[2]s.%[1]s\", unsafe.Pointer(&src.%[1]s), unsafe.Pointer(&dst.%[1]s)){\n%[3]s\t}\n", fieldName, className, indentedTemplate)
+	return fmt.Sprintf("\tif !redefiner.Redefine(\"%[2]s.%[1]s\", path, unsafe.Pointer(&src.%[1]s), unsafe.Pointer(&dst.%[1]s)){\n%[3]s\t}\n", fieldName, className, indentedTemplate)
 }
 
 func indentLines(s, prefix string) string {
@@ -112,13 +114,27 @@ var mapCopyTemplate = `	if len(src.%[1]s) == 0 {
 		}
 	}
 `
-
+var mapCopyTemplateForPointer = `	if len(src.%[1]s) == 0 {
+		if len(dst.%[1]s) != 0 {
+			dst.%[1]s = make(%[2]s, len(dst.%[1]s))
+		}
+	} else {
+		dst.%[1]s = make(%[2]s, len(src.%[1]s))
+		for k, v := range src.%[1]s {
+			if v == nil {
+				dst.%[1]s[k] = nil
+			} else {
+				dst.%[1]s[k] = v.copy(redefiner, append(path, []byte(".%[1]s")...))
+			}
+		}
+	}
+`
 var sliceOfPointerCopyTemplate = `	dst.%[1]s = dst.%[1]s[:0]
 	for _, d := range src.%[1]s {
 		if d == nil {
 			dst.%[1]s = append(dst.%[1]s, nil)
 		} else {
-			temp := d.Copy(redefiner)
+			temp := d.copy(redefiner, append(path, []byte(".%[1]s")...))
 			dst.%[1]s = append(dst.%[1]s, temp)
 		}
 	}
@@ -132,16 +148,25 @@ var structpbCopyTemplate = `	if src.%[1]s == nil {
 var pointerCopyTemplate = `	if src.%[1]s == nil {
 		dst.%[1]s = nil
 	} else {
-		dst.%[1]s = src.%[1]s.Copy(redefiner)
+		dst.%[1]s = src.%[1]s.copy(redefiner, append(path, []byte(".%[1]s")...))
 	}
 `
-
 var copyFromTemplate = `
-func (src *{className}) Copy(redefiner FieldRedefiner) *{className} {
-	dst := new({className})
+func (src *{className}) copy(redefiner FieldRedefiner, path []byte) *{className} {
+    dst := new({className})
 {copyFunction}
-	return dst
-}`
+    return dst
+}
+
+func (src *{className}) Copy(redefiner FieldRedefiner) *{className} {
+	initPath := getSliceByte()
+	defer func() {
+		putSliceByte(initPath)
+	}()
+	initPath = append(initPath, []byte("{className}")...)
+    return src.copy(redefiner, initPath)
+}
+`
 
 var marshalJsonTemplate = `
 func (dst *{className}) MarshalJson() ([]byte, error) {

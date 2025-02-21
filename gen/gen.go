@@ -120,26 +120,41 @@ import (
 	"log"
 	"reflect"
 	"unsafe"
+	"sync"
 )
 
 // Reference imports to suppress errors if they are not otherwise used.
 var _ = log.Println
 var _ = proto.Clone
 var _ *structpb.Struct
-var _ reflect.Type
 var _ unsafe.Pointer
+var _ sync.Pool
 
 
 var DefaultFieldsRedefiner = &NoOpFieldRedefiner{}
 
 type FieldRedefiner interface {
-	 Redefine(path string, src unsafe.Pointer, dst unsafe.Pointer) bool
+	 Redefine(typ string, path []byte, src unsafe.Pointer, dst unsafe.Pointer) bool
 }
 
 type NoOpFieldRedefiner struct {}
 
-func (m *NoOpFieldRedefiner) Redefine(path string, src unsafe.Pointer, dst unsafe.Pointer) bool {
+func (m *NoOpFieldRedefiner) Redefine(typ string, path []byte, src unsafe.Pointer, dst unsafe.Pointer) bool {
 	return false
+}
+
+var sliceBytePool = sync.Pool{
+	New: func() interface{} {
+		return make([]byte, 0)
+	},
+}
+
+func getSliceByte() []byte {
+	return sliceBytePool.Get().([]byte)
+}
+
+func putSliceByte(slice []byte) {
+	sliceBytePool.Put(slice[:0])
 }
 `
 
