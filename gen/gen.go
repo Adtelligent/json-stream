@@ -136,7 +136,7 @@ var DefaultFieldsRedefiner = &NoOpFieldRedefiner{}
 // FieldRedefiner is an interface that redefines a field's value.
 // Parameters:
 // - typ: A type string, for example "BidRequest_Device_UserAgent.Browsers".
-//        It encodes both the structure name and the field name.
+//        It encodes both the structure name and the field name.(see GetType)
 // - path: The path from the main object to the target object, e.g., "BidRequest.Device.Sua".
 // - field: The field name within the structure, e.g., "Browsers".
 // - src: Pointer to the source value.
@@ -167,11 +167,7 @@ func putSliceByte(slice []byte) {
 }
 `
 
-var getTypeMapMethodTemplate = `// GetType retrieves the reflect.Type based on the given JSON path.
-// In this example, the JSON path is "BidRequest.Device.Sua" and the expected final node (field)
-// is "Browsers". The function should locate and return the type corresponding to that field.
-// Note: This is just a placeholder implementation.
-func GetType(path string) (reflect.Type, bool) {
+var getTypeMapMethodTemplate = `func GetType(path string) (reflect.Type, bool) {
 	t, ok := fieldTypeMap[path]
 	return t, ok
 }
