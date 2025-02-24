@@ -72,7 +72,7 @@ func wrapCpTemplateWithRedefiner(className string, template string, field reflec
 	fieldName := field.Name
 	indentedTemplate := indentLines(template, "\t")
 
-	return fmt.Sprintf("\tif !redefiner.Redefine(\"%[2]s.%[1]s\", path, unsafe.Pointer(&src.%[1]s), unsafe.Pointer(&dst.%[1]s)){\n%[3]s\t}\n", fieldName, className, indentedTemplate)
+	return fmt.Sprintf("\tif !redefiner.Redefine(\"%[2]s.%[1]s\", path, []byte(\"%[1]s\"), unsafe.Pointer(&src.%[1]s), unsafe.Pointer(&dst.%[1]s)){\n%[3]s\t}\n", fieldName, className, indentedTemplate)
 }
 
 func indentLines(s, prefix string) string {
