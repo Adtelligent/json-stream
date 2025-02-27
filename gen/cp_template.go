@@ -32,15 +32,22 @@ func (f *SrcFile) getCopyFromImplementation(structureName string, strType reflec
 		case reflect.Map:
 			valueType := field.Type.Elem()
 			className := field.Type.String()
-			if valueType.Kind() == reflect.Ptr && valueType.Elem().Kind() == reflect.Struct {
+			if (valueType.Kind() == reflect.Ptr && valueType.Elem().Kind() == reflect.Struct) || valueType.Kind() == reflect.Struct {
 				className = regexpForPackage.ReplaceAllString(className, "")
-				template = fmt.Sprintf(mapCopyTemplateForPointer, field.Name, className)
+				switch field.Type.Key().Kind() {
+				case reflect.String:
+					template = fmt.Sprintf(mapStrCopyTemplateForPointer, field.Name, className)
+				case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64, reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+					template = fmt.Sprintf(mapIntCopyTemplateForPointer, field.Name, className)
+				default:
+					return nil, fmt.Errorf("unsupported map key type for field %s", field.Name)
+				}
 			} else {
 				template = fmt.Sprintf(mapCopyTemplate, field.Name, className)
 			}
 		case reflect.Slice:
 			elemType := field.Type.Elem()
-			if elemType.Kind() == reflect.Ptr && elemType.Elem().Kind() == reflect.Struct {
+			if (elemType.Kind() == reflect.Ptr && elemType.Elem().Kind() == reflect.Struct) || elemType.Kind() == reflect.Struct {
 				className := elemType.Elem().Name()
 				template = fmt.Sprintf(sliceOfPointerCopyTemplate, field.Name, className)
 			} else {
@@ -174,7 +181,7 @@ var mapCopyTemplate = `	if len(src.%[1]s) == 0 {
 		}
 	}
 `
-var mapCopyTemplateForPointer = `	if len(src.%[1]s) == 0 {
+var mapStrCopyTemplateForPointer = `	if len(src.%[1]s) == 0 {
 		if len(dst.%[1]s) != 0 {
 			dst.%[1]s = make(%[2]s, len(dst.%[1]s))
 		}
@@ -184,7 +191,23 @@ var mapCopyTemplateForPointer = `	if len(src.%[1]s) == 0 {
 			if v == nil {
 				dst.%[1]s[k] = nil
 			} else {
-				dst.%[1]s[k] = v.copy(redefiner, append(path, []byte(".%[1]s")...))
+				dst.%[1]s[k] = v.copy(redefiner, append(append(path, []byte(".%[1]s")...), []byte(k)...))
+			}
+		}
+	}
+`
+
+var mapIntCopyTemplateForPointer = `	if len(src.%[1]s) == 0 {
+		if len(dst.%[1]s) != 0 {
+			dst.%[1]s = make(%[2]s, len(dst.%[1]s))
+		}
+	} else {
+		dst.%[1]s = make(%[2]s, len(src.%[1]s))
+		for k, v := range src.%[1]s {
+			if v == nil {
+				dst.%[1]s[k] = nil
+			} else {
+				dst.%[1]s[k] = v.copy(redefiner, append(append(path, []byte(".%[1]s.")...), strconv.Itoa(i)...))
 			}
 		}
 	}
