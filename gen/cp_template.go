@@ -189,12 +189,13 @@ var mapCopyTemplateForPointer = `	if len(src.%[1]s) == 0 {
 		}
 	}
 `
+
 var sliceOfPointerCopyTemplate = `	dst.%[1]s = dst.%[1]s[:0]
-	for _, d := range src.%[1]s {
+	for i, d := range src.%[1]s {
 		if d == nil {
 			dst.%[1]s = append(dst.%[1]s, nil)
 		} else {
-			temp := d.copy(redefiner, append(path, []byte(".%[1]s")...))
+			temp := d.copy(redefiner, append(append(path, []byte(".%[1]s.")...), byte(i)))
 			dst.%[1]s = append(dst.%[1]s, temp)
 		}
 	}
