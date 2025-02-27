@@ -130,7 +130,7 @@ func generateGetValueUnsafePointerMethod(className string, strType reflect.Type)
 				if field.Type.Elem().Kind() == reflect.Ptr && field.Type.Elem().Elem().Kind() == reflect.Struct {
 					caseCode = fmt.Sprintf(mapStrStructGetValueTemplate, field.Name)
 				} else {
-					caseCode = fmt.Sprintf(mapGetValueTemplate, field.Name)
+					caseCode = fmt.Sprintf(mapStrGetValueTemplate, field.Name)
 				}
 			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 				keyTypeName := field.Type.Key().String()
@@ -295,7 +295,7 @@ var mapStrStructGetValueTemplate = `		if len(parts) < 3 {
 		key := unsafe.String(&parts[2][0], len(parts[2]))
 		value, ok := obj.%[1]s[key]
 		if !ok {
-			return nil, nil, fmt.Errorf("key not found in map %[1]s", "%[1]s")
+			return nil, nil, fmt.Errorf("key not found in map %[1]s: %%s", key)
 		}
 		if value == nil {
 			return nil, nil, fmt.Errorf("nil value for key %%s in map %[1]s", key)
@@ -304,13 +304,13 @@ var mapStrStructGetValueTemplate = `		if len(parts) < 3 {
 			return value.getValueUnsafePointer(parts[2:])
 		}
 		return unsafe.Pointer(&value), GetType("{className}.%[1]s"), nil`
-var mapGetValueTemplate = `		if len(parts) < 3 {
+var mapStrGetValueTemplate = `		if len(parts) < 3 {
 			return unsafe.Pointer(&obj.%[1]s), GetType("{className}.%[1]s"), nil
 		}
 		key := unsafe.String(&parts[2][0], len(parts[2]))
 		value, ok := obj.%[1]s[key]
 		if !ok {
-			return nil, nil, fmt.Errorf("key not found in map %[1]s", "%[1]s")
+			return nil, nil, fmt.Errorf("key not found in map %[1]s: %%s", key)
 		}
 		if len(parts) > 3 {
 			return nil, nil, fmt.Errorf("field %%s is not a nested structure", parts[0])
@@ -327,7 +327,7 @@ var mapIntStructGetValueTemplate = `		if len(parts) < 3 {
 		key := %[2]s(keyInt)
 		value, ok := obj.%[1]s[key]
 		if !ok {
-			return nil, nil, fmt.Errorf("key not found in map %[1]s", "%[1]s")
+			return nil, nil, fmt.Errorf("key not found in map %[1]s: %%d", key)
 		}
 		if value == nil {
 			return nil, nil, fmt.Errorf("nil value for key %%v in map %[1]s", key)
@@ -350,7 +350,7 @@ var mapUintGetValueTemplate = `		if len(parts) < 3 {
 		key := %[2]s(keyUint)
 		value, ok := obj.%[1]s[key]
 		if !ok {
-			return nil, nil, fmt.Errorf("key not found in map %[1]s", "%[1]s")
+			return nil, nil, fmt.Errorf("key not found in map %[1]s: %%d", key)
 		}
 		if len(parts) > 3 {
 			return nil, nil, fmt.Errorf("field %%s is not a nested structure", parts[0])
@@ -366,7 +366,7 @@ var mapUintStructGetValueTemplate = `		if len(parts) < 3 {
 		key := %[2]s(keyUint)
 		value, ok := obj.%[1]s[key]
 		if !ok {
-			return nil, nil, fmt.Errorf("key not found in map %[1]s", "%[1]s")
+			return nil, nil, fmt.Errorf("key not found in map %[1]s: %%d", key)
 		}
 		if value == nil {
 			return nil, nil, fmt.Errorf("nil value for key %%v in map %[1]s", key)
@@ -385,7 +385,7 @@ var mapIntGetValueTemplate = `		if len(parts) < 3 {
 		key := %[2]s(keyInt)
 		value, ok := obj.%[1]s[key]
 		if !ok {
-			return nil, nil, fmt.Errorf("key not found in map %[1]s", "%[1]s")
+			return nil, nil, fmt.Errorf("key not found in map %[1]s: %%d", key)
 		}
 		if len(parts) > 3 {
 			return nil, nil, fmt.Errorf("field %%s is not a nested structure", parts[1])
