@@ -41,8 +41,9 @@ func (f *SrcFile) GetStructureFile() (string, error) {
 	var body bytes.Buffer
 	var mapEntries []string
 	for _, className := range f.Structures {
+		strType := reg.TypeRegistry[className]
 		if *copyFunctionsFeature {
-			copyFunction, err := f.getCopyFromImplementation(className)
+			copyFunction, err := f.getCopyFromImplementation(className, strType)
 			if err != nil {
 				return "", err
 			}
@@ -50,15 +51,17 @@ func (f *SrcFile) GetStructureFile() (string, error) {
 
 		}
 		body.WriteString(generateMarshalJsonFile(className))
-		t := reg.TypeRegistry[className]
-		for i := 0; i < t.NumField(); i++ {
-			field := t.Field(i)
+		for i := 0; i < strType.NumField(); i++ {
+			field := strType.Field(i)
 			if !field.IsExported() {
 				continue
 			}
 			entry := fmt.Sprintf("\t\"%[1]s.%[2]s\": reflect.TypeOf(%[1]s{}.%[2]s),", className, field.Name, className, field.Name)
 			mapEntries = append(mapEntries, entry)
 		}
+
+		body.WriteString(generateGetValueUnsafePointerMethod(className, strType))
+
 	}
 
 	result.WriteString(strings.Replace(structureFileTemplate, "{packageName}", f.PackageName, 1))
@@ -114,13 +117,15 @@ package {packageName}
 
 import (
 	"bytes"
+	"fmt"
 	"github.com/golang/protobuf/proto"
 	structpb "github.com/golang/protobuf/ptypes/struct"
 	"io"
 	"log"
 	"reflect"
-	"unsafe"
+	"strconv"
 	"sync"
+	"unsafe"
 )
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -167,8 +172,7 @@ func putSliceByte(slice []byte) {
 }
 `
 
-var getTypeMapMethodTemplate = `func GetType(path string) (reflect.Type, bool) {
-	t, ok := fieldTypeMap[path]
-	return t, ok
+var getTypeMapMethodTemplate = `func GetType(path string) reflect.Type {
+	return fieldTypeMap[path]
 }
 `

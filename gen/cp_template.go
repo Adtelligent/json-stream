@@ -3,7 +3,6 @@ package gen
 import (
 	"bytes"
 	"fmt"
-	"github.com/Adtelligent/json-stream/reg"
 	"reflect"
 	"regexp"
 	"strings"
@@ -11,13 +10,11 @@ import (
 
 var regexpForPackage = regexp.MustCompile(`\b\w+\.`)
 
-func (f *SrcFile) getCopyFromImplementation(structureName string) ([]byte, error) {
-	str := reg.TypeRegistry[structureName]
-
+func (f *SrcFile) getCopyFromImplementation(structureName string, strType reflect.Type) ([]byte, error) {
 	var result bytes.Buffer
 	var template string
-	for i := 0; i < str.NumField(); i++ {
-		field := str.Field(i)
+	for i := 0; i < strType.NumField(); i++ {
+		field := strType.Field(i)
 		if !field.IsExported() {
 			continue
 		}
@@ -64,7 +61,6 @@ func (f *SrcFile) getCopyFromImplementation(structureName string) ([]byte, error
 
 		result.WriteString(wrapCpTemplateWithRedefiner(structureName, template, field))
 	}
-
 	return result.Bytes(), nil
 }
 
@@ -100,6 +96,70 @@ func generateMarshalJsonFile(className string) string {
 
 func generateQtcName(className string) string {
 	return strings.ToLower(className[:1]) + className[1:] + "JSON"
+}
+
+func generateGetValueUnsafePointerMethod(className string, strType reflect.Type) string {
+	var caseEntries []string
+	for i := 0; i < strType.NumField(); i++ {
+		field := strType.Field(i)
+		if !field.IsExported() {
+			continue
+		}
+		var caseCode string
+		fieldCaseHeader := fmt.Sprintf("\tif bytes.Equal(parts[1],[]byte(\"%s\")) {\n", field.Name)
+		switch field.Type.Kind() {
+		case reflect.Chan, reflect.Func, reflect.UnsafePointer, reflect.Interface:
+			continue
+		case reflect.Struct:
+			caseCode = fmt.Sprintf(structGetValueTemplate, field.Name)
+		case reflect.Ptr:
+			if field.Type.Elem().Kind() == reflect.Struct && field.Type.Elem().String() != "structpb.Struct" {
+				caseCode = fmt.Sprintf(ptrStructGetValueTemplate, field.Name)
+			} else {
+				caseCode = fmt.Sprintf(ptrGetValueTemplate, field.Name)
+			}
+		case reflect.Slice:
+			if field.Type.Elem().Kind() == reflect.Ptr && field.Type.Elem().Elem().Kind() == reflect.Struct {
+				caseCode = fmt.Sprintf(sliceStructGetValueTemplate, field.Name)
+			} else {
+				caseCode = fmt.Sprintf(sliceGetValueTemplate, field.Name)
+			}
+		case reflect.Map:
+			switch field.Type.Key().Kind() {
+			case reflect.String:
+				if field.Type.Elem().Kind() == reflect.Ptr && field.Type.Elem().Elem().Kind() == reflect.Struct {
+					caseCode = fmt.Sprintf(mapStrStructGetValueTemplate, field.Name)
+				} else {
+					caseCode = fmt.Sprintf(mapGetValueTemplate, field.Name)
+				}
+			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+				keyTypeName := field.Type.Key().String()
+				if field.Type.Elem().Kind() == reflect.Ptr && field.Type.Elem().Elem().Kind() == reflect.Struct {
+					caseCode = fmt.Sprintf(mapIntStructGetValueTemplate, field.Name, keyTypeName)
+				} else {
+					caseCode = fmt.Sprintf(mapIntGetValueTemplate, field.Name, keyTypeName)
+				}
+			case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+				keyTypeName := field.Type.Key().String()
+				if field.Type.Elem().Kind() == reflect.Ptr && field.Type.Elem().Elem().Kind() == reflect.Struct {
+					caseCode = fmt.Sprintf(mapUintStructGetValueTemplate, field.Name, keyTypeName)
+				} else {
+					caseCode = fmt.Sprintf(mapUintGetValueTemplate, field.Name, keyTypeName)
+				}
+			default:
+				caseCode = fmt.Sprintf(`	return nil, nil, fmt.Errorf("unsupported map key type for field %[1]s", "%[1]s")
+`, field.Name)
+			}
+		default:
+			caseCode = fmt.Sprintf(defaultGetValueTemplate, field.Name)
+		}
+		caseEntry := fieldCaseHeader + caseCode + "\n\t}\n"
+		caseEntries = append(caseEntries, caseEntry)
+	}
+	mapCases := strings.Join(caseEntries, "\n")
+	methodCode := strings.ReplaceAll(getUnsafePointerTemplate, "{cases}", mapCases)
+	methodCode = strings.ReplaceAll(methodCode, "{className}", className)
+	return methodCode
 }
 
 var mapCopyTemplate = `	if len(src.%[1]s) == 0 {
@@ -167,6 +227,170 @@ func (src *{className}) Copy(redefiner FieldRedefiner) *{className} {
     return src.copy(redefiner, initPath)
 }
 `
+
+var getUnsafePointerTemplate = `
+func (obj *{className}) GetValueUnsafePointer(pathToField []byte) (unsafe.Pointer, reflect.Type, error) {
+	parts := bytes.Split(pathToField, []byte("."))
+	if len(parts) == 0 {
+		return nil, nil, fmt.Errorf("empty path")
+	}
+	if !bytes.Equal(parts[0], []byte("{className}")) {
+		return nil, nil, fmt.Errorf("incorrect path: %s", parts[0])
+	}
+	return obj.getValueUnsafePointer(parts)
+}
+
+func (obj *{className}) getValueUnsafePointer(parts [][]byte) (unsafe.Pointer, reflect.Type, error) {
+{cases}
+	return nil, nil, fmt.Errorf("field not found: %%s", parts[1])
+
+}
+`
+var structGetValueTemplate = `			if len(parts) > 2 {
+				return obj.%[1]s.getValueUnsafePointer(parts[1:])
+			}
+			return unsafe.Pointer(&obj.%[1]s), GetType("{className}.%[1]s"), nil`
+var ptrStructGetValueTemplate = `		if obj.%[1]s == nil {
+			return nil, nil, fmt.Errorf("field %[1]s is nil")
+		}
+		if len(parts) > 2 {
+			return obj.%[1]s.getValueUnsafePointer(parts[1:])
+		}
+		return unsafe.Pointer(&obj.%[1]s), GetType("{className}.%[1]s"), nil`
+var ptrGetValueTemplate = `		if len(parts) > 2 {
+			return nil, nil, fmt.Errorf("field %%s is not a nested structure", parts[0])
+		}
+		if obj.%[1]s == nil {
+			return nil, nil, fmt.Errorf("field %[1]s is nil")
+		}
+		return unsafe.Pointer(&obj.%[1]s), GetType("{className}.%[1]s"), nil`
+var sliceStructGetValueTemplate = `		if len(parts) < 3 {
+			return unsafe.Pointer(&obj.%[1]s), GetType("{className}.%[1]s"), nil
+		}
+		index, err := strconv.Atoi(unsafe.String(&parts[2][0], len(parts[2])))
+		if err != nil || index < 0 || index >= len(obj.%[1]s) {
+			return nil, nil, fmt.Errorf("invalid index for slice %[1]s", "%[1]s")
+		}
+		if obj.%[1]s[index] == nil {
+			return nil, nil, fmt.Errorf("nil element at index %%d in slice %[1]s", index)
+		}
+		if len(parts) > 3 {
+			return obj.%[1]s[index].getValueUnsafePointer(parts[2:])
+		}
+		return unsafe.Pointer(&obj.%[1]s[index]), GetType("{className}.%[1]s"), nil`
+var sliceGetValueTemplate = `		if len(parts) < 3 {
+			return unsafe.Pointer(&obj.%[1]s), GetType("{className}.%[1]s"), nil
+		}
+		index, err := strconv.Atoi(unsafe.String(&parts[1][0], len(parts[1])))
+		if err != nil || index < 0 || index >= len(obj.%[1]s) {
+			return nil, nil, fmt.Errorf("invalid index for slice %[1]s", "%[1]s")
+		}
+		if len(parts) > 3 {
+			return nil, nil, fmt.Errorf("field %%s is not a nested structure", parts[0])
+		}
+		return unsafe.Pointer(&obj.%[1]s[index]), GetType("{className}.%[1]s"), nil`
+var mapStrStructGetValueTemplate = `		if len(parts) < 3 {
+			return unsafe.Pointer(&obj.%[1]s), GetType("{className}.%[1]s"), nil
+		}
+		key := unsafe.String(&parts[2][0], len(parts[2]))
+		value, ok := obj.%[1]s[key]
+		if !ok {
+			return nil, nil, fmt.Errorf("key not found in map %[1]s", "%[1]s")
+		}
+		if value == nil {
+			return nil, nil, fmt.Errorf("nil value for key %%s in map %[1]s", key)
+		}
+		if len(parts) > 3 {
+			return value.getValueUnsafePointer(parts[2:])
+		}
+		return unsafe.Pointer(&value), GetType("{className}.%[1]s"), nil`
+var mapGetValueTemplate = `		if len(parts) < 3 {
+			return unsafe.Pointer(&obj.%[1]s), GetType("{className}.%[1]s"), nil
+		}
+		key := unsafe.String(&parts[2][0], len(parts[2]))
+		value, ok := obj.%[1]s[key]
+		if !ok {
+			return nil, nil, fmt.Errorf("key not found in map %[1]s", "%[1]s")
+		}
+		if len(parts) > 3 {
+			return nil, nil, fmt.Errorf("field %%s is not a nested structure", parts[0])
+		}
+		return unsafe.Pointer(&value), GetType("{className}.%[1]s"), nil`
+
+var mapIntStructGetValueTemplate = `		if len(parts) < 3 {
+			return unsafe.Pointer(&obj.%[1]s), GetType("{className}.%[1]s"), nil
+		}
+		keyInt, err := strconv.Atoi(unsafe.String(&parts[2][0], len(parts[2])))
+		if err != nil {
+			return nil, nil, fmt.Errorf("invalid key for map %[1]s: %%s", parts[2])
+		}
+		key := %[2]s(keyInt)
+		value, ok := obj.%[1]s[key]
+		if !ok {
+			return nil, nil, fmt.Errorf("key not found in map %[1]s", "%[1]s")
+		}
+		if value == nil {
+			return nil, nil, fmt.Errorf("nil value for key %%v in map %[1]s", key)
+		}
+		if len(parts) > 3 {
+			return value.getValueUnsafePointer(parts[2:])
+		}
+		return unsafe.Pointer(&value), GetType("{className}.%[1]s"), nil`
+var defaultGetValueTemplate = `		if len(parts) > 3 {
+			return nil, nil, fmt.Errorf("field %%s is not a nested structure", parts[1])
+		}
+		return unsafe.Pointer(&obj.%[1]s), GetType("{className}.%[1]s"), nil`
+var mapUintGetValueTemplate = `		if len(parts) < 3 {
+			return unsafe.Pointer(&obj.%[1]s), GetType("{className}.%[1]s"), nil
+		}
+		keyUint, err := strconv.ParseUint(parts[2], 10, 64)
+		if err != nil {
+			return nil, nil, fmt.Errorf("invalid key for map %[1]s: %%s", parts[1])
+		}
+		key := %[2]s(keyUint)
+		value, ok := obj.%[1]s[key]
+		if !ok {
+			return nil, nil, fmt.Errorf("key not found in map %[1]s", "%[1]s")
+		}
+		if len(parts) > 3 {
+			return nil, nil, fmt.Errorf("field %%s is not a nested structure", parts[0])
+		}
+		return unsafe.Pointer(&value), GetType("{className}.%[1]s"), nil`
+var mapUintStructGetValueTemplate = `		if len(parts) < 3 {
+			return unsafe.Pointer(&obj.%[1]s), GetType("{className}.%[1]s"), nil
+		}
+		keyUint, err := strconv.ParseUint(parts[2], 10, 64)
+		if err != nil {
+			return nil, nil, fmt.Errorf("invalid key for map %[1]s: %%s", parts[1])
+		}
+		key := %[2]s(keyUint)
+		value, ok := obj.%[1]s[key]
+		if !ok {
+			return nil, nil, fmt.Errorf("key not found in map %[1]s", "%[1]s")
+		}
+		if value == nil {
+			return nil, nil, fmt.Errorf("nil value for key %%v in map %[1]s", key)
+		}
+		if len(parts) > 3 {
+			return value.getValueUnsafePointer(parts[2:])
+		}
+		return unsafe.Pointer(&value), GetType("{className}.%[1]s"), nil`
+var mapIntGetValueTemplate = `		if len(parts) < 3 {
+			return unsafe.Pointer(&obj.%[1]s), GetType("{className}.%[1]s"), nil
+		}
+		keyInt, err := strconv.Atoi(unsafe.String(&parts[2][0], len(parts[2])))
+		if err != nil {
+			return nil, nil, fmt.Errorf("invalid key for map %[1]s: %%s", parts[2])
+		}
+		key := %[2]s(keyInt)
+		value, ok := obj.%[1]s[key]
+		if !ok {
+			return nil, nil, fmt.Errorf("key not found in map %[1]s", "%[1]s")
+		}
+		if len(parts) > 3 {
+			return nil, nil, fmt.Errorf("field %%s is not a nested structure", parts[1])
+		}
+		return unsafe.Pointer(&value), GetType("{className}.%[1]s"), nil`
 
 var marshalJsonTemplate = `
 func (dst *{className}) MarshalJson() ([]byte, error) {
