@@ -195,7 +195,7 @@ var sliceOfPointerCopyTemplate = `	dst.%[1]s = dst.%[1]s[:0]
 		if d == nil {
 			dst.%[1]s = append(dst.%[1]s, nil)
 		} else {
-			temp := d.copy(redefiner, append(append(path, []byte(".%[1]s.")...), byte(i)))
+			temp := d.copy(redefiner, append(append(path, []byte(".%[1]s.")...), strconv.Itoa(i)...))
 			dst.%[1]s = append(dst.%[1]s, temp)
 		}
 	}
