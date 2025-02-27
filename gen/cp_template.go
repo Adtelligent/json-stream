@@ -269,7 +269,7 @@ var sliceStructGetValueTemplate = `		if len(parts) < 3 {
 		}
 		index, err := strconv.Atoi(unsafe.String(&parts[2][0], len(parts[2])))
 		if err != nil || index < 0 || index >= len(obj.%[1]s) {
-			return nil, nil, fmt.Errorf("invalid index for slice %[1]s:  %d", index)
+			return nil, nil, fmt.Errorf("invalid index for slice %[1]s: %%d", index)
 		}
 		if obj.%[1]s[index] == nil {
 			return nil, nil, fmt.Errorf("nil element at index %%d in slice %[1]s", index)
@@ -283,7 +283,7 @@ var sliceGetValueTemplate = `		if len(parts) < 3 {
 		}
 		index, err := strconv.Atoi(unsafe.String(&parts[1][0], len(parts[1])))
 		if err != nil || index < 0 || index >= len(obj.%[1]s) {
-			return nil, nil, fmt.Errorf("invalid index for slice %[1]s", "%[1]s")
+			return nil, nil, fmt.Errorf("invalid index for slice %[1]s: %%d", index)
 		}
 		if len(parts) > 3 {
 			return nil, nil, fmt.Errorf("field %%s is not a nested structure", parts[0])
