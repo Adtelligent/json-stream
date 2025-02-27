@@ -242,7 +242,7 @@ func (obj *{className}) GetValueUnsafePointer(pathToField []byte) (unsafe.Pointe
 
 func (obj *{className}) getValueUnsafePointer(parts [][]byte) (unsafe.Pointer, reflect.Type, error) {
 {cases}
-	return nil, nil, fmt.Errorf("field not found: %%s", parts[1])
+	return nil, nil, fmt.Errorf("field not found: %s", parts[1])
 
 }
 `
