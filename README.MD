@@ -8,6 +8,8 @@ This library provides a fast and efficient solution for JSON marshaling in Golan
 - Optional preprocessing mode for advanced control
 - Ability to generate copy functions for structures with customizable field selection:
   - The generated copy functions accept a redefiner (FieldRedefiner interface) that allows you to specify how field values should be redefined.
+- Ability to generate copy functions GetValueUnsafePointer(pathToField []byte) (unsafe.Pointer, reflect.Type, error)
+  that retrieves an unsafe pointer to the field’s value using a provided path, along with its type and an error if applicable.
 - Flag boolToInt to automatically generate conversion logic for boolean types into integers
 
 ## Getting Started
