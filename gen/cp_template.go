@@ -291,7 +291,7 @@ var ptrGetValueTemplate = `		if len(parts) > 2 {
 var sliceStructGetValueTemplate = `		if len(parts) < 3 {
 			return unsafe.Pointer(&obj.%[1]s), GetType("{className}.%[1]s"), nil
 		}
-		index, err := strconv.Atoi(unsafe.String(&parts[2][0], len(parts[2])))
+		index, err := strconv.Atoi(unsafe.String(unsafe.SliceData(parts[2]), len(parts[2])))
 		if err != nil || index < 0 || index >= len(obj.%[1]s) {
 			return nil, nil, fmt.Errorf("invalid index for slice %[1]s: %%d", index)
 		}
@@ -305,7 +305,7 @@ var sliceStructGetValueTemplate = `		if len(parts) < 3 {
 var sliceGetValueTemplate = `		if len(parts) < 3 {
 			return unsafe.Pointer(&obj.%[1]s), GetType("{className}.%[1]s"), nil
 		}
-		index, err := strconv.Atoi(unsafe.String(&parts[1][0], len(parts[1])))
+		index, err := strconv.Atoi(unsafe.String(unsafe.SliceData(parts[1]), len(parts[1])))
 		if err != nil || index < 0 || index >= len(obj.%[1]s) {
 			return nil, nil, fmt.Errorf("invalid index for slice %[1]s: %%d", index)
 		}
@@ -316,7 +316,7 @@ var sliceGetValueTemplate = `		if len(parts) < 3 {
 var mapStrStructGetValueTemplate = `		if len(parts) < 3 {
 			return unsafe.Pointer(&obj.%[1]s), GetType("{className}.%[1]s"), nil
 		}
-		key := unsafe.String(&parts[2][0], len(parts[2]))
+		key := unsafe.String(unsafe.SliceData(parts[2]), len(parts[2]))
 		value, ok := obj.%[1]s[key]
 		if !ok {
 			return nil, nil, fmt.Errorf("key not found in map %[1]s: %%s", key)
@@ -331,7 +331,7 @@ var mapStrStructGetValueTemplate = `		if len(parts) < 3 {
 var mapStrGetValueTemplate = `		if len(parts) < 3 {
 			return unsafe.Pointer(&obj.%[1]s), GetType("{className}.%[1]s"), nil
 		}
-		key := unsafe.String(&parts[2][0], len(parts[2]))
+		key := unsafe.String(unsafe.SliceData(parts[2]), len(parts[2]))
 		value, ok := obj.%[1]s[key]
 		if !ok {
 			return nil, nil, fmt.Errorf("key not found in map %[1]s: %%s", key)
@@ -344,7 +344,7 @@ var mapStrGetValueTemplate = `		if len(parts) < 3 {
 var mapIntStructGetValueTemplate = `		if len(parts) < 3 {
 			return unsafe.Pointer(&obj.%[1]s), GetType("{className}.%[1]s"), nil
 		}
-		keyInt, err := strconv.Atoi(unsafe.String(&parts[2][0], len(parts[2])))
+		keyInt, err := strconv.Atoi(unsafe.String(unsafe.SliceData(parts[2]), len(parts[2])))
 		if err != nil {
 			return nil, nil, fmt.Errorf("invalid key for map %[1]s: %%s", parts[2])
 		}
@@ -402,7 +402,7 @@ var mapUintStructGetValueTemplate = `		if len(parts) < 3 {
 var mapIntGetValueTemplate = `		if len(parts) < 3 {
 			return unsafe.Pointer(&obj.%[1]s), GetType("{className}.%[1]s"), nil
 		}
-		keyInt, err := strconv.Atoi(unsafe.String(&parts[2][0], len(parts[2])))
+		keyInt, err := strconv.Atoi(unsafe.String(unsafe.SliceData(parts[2]), len(parts[2])))
 		if err != nil {
 			return nil, nil, fmt.Errorf("invalid key for map %[1]s: %%s", parts[2])
 		}
