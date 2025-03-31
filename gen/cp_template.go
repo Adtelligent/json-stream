@@ -28,7 +28,7 @@ func (f *SrcFile) getCopyFromImplementation(structureName string, strType reflec
 				}
 			`, field.Name)
 		case reflect.Struct:
-			template = fmt.Sprintf("\tdst.%[1]s = src.%[1]s.copy(redefiner, append(path, []byte(\".%[1]s\")...))\n", field.Name)
+			template = fmt.Sprintf("\tdst.%[1]s = src.%[1]s.copy(redefiner, append(wildcardPath, []byte(\".%[1]s\")...), indexedPath)\n", field.Name)
 		case reflect.Map:
 			valueType := field.Type.Elem()
 			className := field.Type.String()
@@ -75,7 +75,7 @@ func wrapCpTemplateWithRedefiner(className string, template string, field reflec
 	fieldName := field.Name
 	indentedTemplate := indentLines(template, "\t")
 
-	return fmt.Sprintf("\tif !redefiner.Redefine(\"%[2]s.%[1]s\", path, []byte(\"%[1]s\"), unsafe.Pointer(&src.%[1]s), unsafe.Pointer(&dst.%[1]s)){\n%[3]s\t}\n", fieldName, className, indentedTemplate)
+	return fmt.Sprintf("\tif !redefiner.Redefine(\"%[2]s.%[1]s\", wildcardPath, []byte(\"%[1]s\"), unsafe.Pointer(&src.%[1]s), unsafe.Pointer(&dst.%[1]s)) && (indexedPath == nil || !redefiner.Redefine(\"%[2]s.%[1]s\", indexedPath, []byte(\"%[1]s\"), unsafe.Pointer(&src.%[1]s), unsafe.Pointer(&dst.%[1]s))) {\n%[3]s\t}\n", fieldName, className, indentedTemplate)
 }
 
 func indentLines(s, prefix string) string {
@@ -191,7 +191,7 @@ var mapStrCopyTemplateForPointer = `	if len(src.%[1]s) == 0 {
 			if v == nil {
 				dst.%[1]s[k] = nil
 			} else {
-				dst.%[1]s[k] = v.copy(redefiner, append(append(path, []byte(".%[1]s")...), []byte(k)...))
+				dst.%[1]s[k] = v.copy(redefiner, append(append(wildcardPath, []byte(".%[1]s")...), []byte(k)...), indexedPath)
 			}
 		}
 	}
@@ -207,7 +207,7 @@ var mapIntCopyTemplateForPointer = `	if len(src.%[1]s) == 0 {
 			if v == nil {
 				dst.%[1]s[k] = nil
 			} else {
-				dst.%[1]s[k] = v.copy(redefiner, append(append(path, []byte(".%[1]s.")...), strconv.Itoa(i)...))
+				dst.%[1]s[k] = v.copy(redefiner, append(append(wildcardPath, []byte(".%[1]s.")...), strconv.Itoa(i)...), indexedPath)
 			}
 		}
 	}
@@ -218,7 +218,7 @@ var sliceOfPointerCopyTemplate = `	dst.%[1]s = dst.%[1]s[:0]
 		if d == nil {
 			dst.%[1]s = append(dst.%[1]s, nil)
 		} else {
-			temp := d.copy(redefiner, append(append(path, []byte(".%[1]s.")...), strconv.Itoa(i)...))
+			temp := d.copy(redefiner, append(wildcardPath, []byte(".%[1]s")...), append(append(wildcardPath, []byte(".%[1]s.")...), strconv.Itoa(i)...))
 			dst.%[1]s = append(dst.%[1]s, temp)
 		}
 	}
@@ -232,23 +232,18 @@ var structpbCopyTemplate = `	if src.%[1]s == nil {
 var pointerCopyTemplate = `	if src.%[1]s == nil {
 		dst.%[1]s = nil
 	} else {
-		dst.%[1]s = src.%[1]s.copy(redefiner, append(path, []byte(".%[1]s")...))
+		dst.%[1]s = src.%[1]s.copy(redefiner, append(wildcardPath, []byte(".%[1]s")...), indexedPath)
 	}
 `
 var copyFromTemplate = `
-func (src *{className}) copy(redefiner FieldRedefiner, path []byte) *{className} {
+func (src *{className}) copy(redefiner FieldRedefiner, wildcardPath, indexedPath []byte) *{className} {
     dst := new({className})
 {copyFunction}
     return dst
 }
 
 func (src *{className}) Copy(redefiner FieldRedefiner) *{className} {
-	initPath := getSliceByte()
-	defer func() {
-		putSliceByte(initPath)
-	}()
-	initPath = append(initPath, []byte("{className}")...)
-    return src.copy(redefiner, initPath)
+    return src.copy(redefiner, []byte("{className}"), nil)
 }
 `
 

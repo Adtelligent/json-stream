@@ -156,20 +156,6 @@ type NoOpFieldRedefiner struct {}
 func (m *NoOpFieldRedefiner) Redefine(typ string, path, field []byte, src unsafe.Pointer, dst unsafe.Pointer) bool {
 	return false
 }
-
-var sliceBytePool = sync.Pool{
-	New: func() interface{} {
-		return make([]byte, 0)
-	},
-}
-
-func getSliceByte() []byte {
-	return sliceBytePool.Get().([]byte)
-}
-
-func putSliceByte(slice []byte) {
-	sliceBytePool.Put(slice[:0])
-}
 `
 
 var getTypeMapMethodTemplate = `func GetType(path string) reflect.Type {
