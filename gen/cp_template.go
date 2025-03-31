@@ -28,7 +28,15 @@ func (f *SrcFile) getCopyFromImplementation(structureName string, strType reflec
 				}
 			`, field.Name)
 		case reflect.Struct:
-			template = fmt.Sprintf("\tdst.%[1]s = src.%[1]s.copy(redefiner, append(wildcardPath, []byte(\".%[1]s\")...), indexedPath)\n", field.Name)
+			template = fmt.Sprintf(`	if indexedPath != nil {
+		dst.%[1]s = src.%[1]s.copy(redefiner, append(wildcardPath, []byte(".%[1]s")...), append(indexedPath, []byte(".%[1]s")...) )
+	} else {
+		dst.%[1]s = src.%[1]s.copy(redefiner, append(wildcardPath, []byte(".%[1]s")...), indexedPath)
+	}
+`, field.Name)
+			template = fmt.Sprintf("if indexedPath != nil {"+
+				""+
+				"\tdst.%[1]s = src.%[1]s.copy(redefiner, append(wildcardPath, []byte(\".%[1]s\")...), indexedPath)\n", field.Name)
 		case reflect.Map:
 			valueType := field.Type.Elem()
 			className := field.Type.String()
@@ -191,7 +199,11 @@ var mapStrCopyTemplateForPointer = `	if len(src.%[1]s) == 0 {
 			if v == nil {
 				dst.%[1]s[k] = nil
 			} else {
-				dst.%[1]s[k] = v.copy(redefiner, append(append(wildcardPath, []byte(".%[1]s")...), []byte(k)...), indexedPath)
+				if indexedPath != nil {
+					dst.%[1]s[k] = v.copy(redefiner, append(wildcardPath, []byte(".%[1]s")...), append(indexedPath, []byte(".%[1]s")...))
+				} else {
+					dst.%[1]s[k] = v.copy(redefiner, append(wildcardPath, []byte(".%[1]s")...), indexedPath)
+				}
 			}
 		}
 	}
@@ -207,7 +219,11 @@ var mapIntCopyTemplateForPointer = `	if len(src.%[1]s) == 0 {
 			if v == nil {
 				dst.%[1]s[k] = nil
 			} else {
-				dst.%[1]s[k] = v.copy(redefiner, append(append(wildcardPath, []byte(".%[1]s.")...), strconv.Itoa(i)...), indexedPath)
+				if indexedPath != nil {
+					dst.%[1]s[k] = v.copy(redefiner, append(wildcardPath, []byte(".%[1]s")...), append(indexedPath, []byte(".%[1]s")...))
+				} else {
+					dst.%[1]s[k] = v.copy(redefiner, append(wildcardPath, []byte(".%[1]s")...), indexedPath)
+				}
 			}
 		}
 	}
@@ -232,7 +248,11 @@ var structpbCopyTemplate = `	if src.%[1]s == nil {
 var pointerCopyTemplate = `	if src.%[1]s == nil {
 		dst.%[1]s = nil
 	} else {
-		dst.%[1]s = src.%[1]s.copy(redefiner, append(wildcardPath, []byte(".%[1]s")...), indexedPath)
+		if indexedPath != nil {
+			dst.%[1]s = src.%[1]s.copy(redefiner, append(wildcardPath, []byte(".%[1]s")...), append(indexedPath, []byte(".%[1]s")...))
+		} else {
+			dst.%[1]s = src.%[1]s.copy(redefiner, append(wildcardPath, []byte(".%[1]s")...), indexedPath)
+		}
 	}
 `
 var copyFromTemplate = `
