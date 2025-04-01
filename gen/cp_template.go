@@ -237,11 +237,10 @@ var sliceOfPointerCopyTemplate = `	dst.%[1]s = dst.%[1]s[:0]
 			if indexedPath != nil {
 				dst.%[1]s = append(dst.%[1]s, d.copy(redefiner, append(wildcardPath, []byte(".%[1]s")...), append(append(indexedPath, []byte(".%[1]s.")...), strconv.Itoa(i)...)))
 			} else {
-				indexedPath = getSliceByte()
-				indexedPath = append(indexedPath, wildcardPath...)
-				dst.%[1]s = append(dst.%[1]s, d.copy(redefiner, append(wildcardPath, []byte(".%[1]s")...), append(append(indexedPath, []byte(".%[1]s.")...), strconv.Itoa(i)...)))
-				putSliceByte(indexedPath)
-				indexedPath = nil
+				currentIndexedPath := getSliceByte()
+				currentIndexedPath = append(currentIndexedPath, wildcardPath...)
+				dst.%[1]s = append(dst.%[1]s, d.copy(redefiner, append(wildcardPath, []byte(".%[1]s")...), append(append(currentIndexedPath, []byte(".%[1]s.")...), strconv.Itoa(i)...)))
+				putSliceByte(currentIndexedPath)
 			}
 		}
 	}
