@@ -263,7 +263,11 @@ func (src *{className}) copy(redefiner FieldRedefiner, wildcardPath, indexedPath
 }
 
 func (src *{className}) Copy(redefiner FieldRedefiner) *{className} {
-    return src.copy(redefiner, []byte("{className}"), nil)
+	initPath := getSliceByte()
+	defer func() {
+		putSliceByte(initPath)
+	}()
+    return src.copy(redefiner, append(initPath, []byte("{className}")...), nil)
 }
 `
 

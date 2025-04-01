@@ -116,6 +116,7 @@ var structureFileTemplate = `
 package {packageName}
 
 import (
+	"flag"
 	"bytes"
 	"fmt"
 	"github.com/golang/protobuf/proto"
@@ -155,6 +156,22 @@ type NoOpFieldRedefiner struct {}
 
 func (m *NoOpFieldRedefiner) Redefine(typ string, path, field []byte, src unsafe.Pointer, dst unsafe.Pointer) bool {
 	return false
+}
+
+var capSliceBytePool = flag.Uint("capSliceBytePool", 1024, "Capacity of slice byte for pool")
+
+var sliceBytePool = sync.Pool{
+	New: func() interface{} {
+		return make([]byte, 0, *capSliceBytePool)
+	},
+}
+
+func getSliceByte() []byte {
+	return sliceBytePool.Get().([]byte)
+}
+
+func putSliceByte(slice []byte) {
+	sliceBytePool.Put(slice[:0])
 }
 `
 
