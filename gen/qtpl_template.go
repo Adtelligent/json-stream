@@ -66,7 +66,11 @@ func getJsonName(field reflect.StructField) string {
 }
 
 func getWriteJSON(className string, f *SrcFile) (string, error) {
-	return getStructureJSON(className, f)
+	if f.isImplementator(className) {
+		return getImplementatorJSON(className, f)
+	} else {
+		return getStructureJSON(className, f)
+	}
 }
 
 func wrapTemplateWithCondition(template string, field reflect.StructField) string {
@@ -74,7 +78,7 @@ func wrapTemplateWithCondition(template string, field reflect.StructField) strin
 	var condition string
 
 	switch field.Type.Kind() {
-	case reflect.Ptr:
+	case reflect.Ptr, reflect.Interface:
 		condition = fmt.Sprintf("d.%s != nil", fieldName)
 	case reflect.Struct:
 		condition = fmt.Sprintf("&d.%s != nil", fieldName)
@@ -117,7 +121,7 @@ func getStructureJSON(className string, f *SrcFile) (string, error) {
 		field := str.Field(i)
 		jsonName := getJsonName(field)
 
-		if jsonName == "" {
+		if jsonName == "" && field.Type.Kind() != reflect.Interface {
 			continue
 		}
 
@@ -131,6 +135,28 @@ func getStructureJSON(className string, f *SrcFile) (string, error) {
 
 	result.WriteString("	}")
 
+	return result.String(), nil
+}
+
+func getImplementatorJSON(className string, f *SrcFile) (string, error) {
+	var result bytes.Buffer
+	str := reg.TypeRegistry[className]
+	result.WriteString("		{% code comma := false %}\n")
+	for i := 0; i < str.NumField(); i++ {
+		field := str.Field(i)
+		jsonName := getJsonName(field)
+
+		if jsonName == "" && field.Type.Kind() != reflect.Interface {
+			continue
+		}
+
+		fieldTemplate, err := generateFieldTemplate(field.Type, field, f, jsonName)
+		if err != nil {
+			return "", fmt.Errorf("error generating template for field %s: %w", field.Name, err)
+		}
+
+		result.WriteString(replaceMacros(fieldTemplate, className, field))
+	}
 	return result.String(), nil
 }
 
@@ -154,6 +180,14 @@ func formatFieldName(typ reflect.Type, fieldName string) string {
 }
 
 func formatTemplate(jsonName, template string) string {
+	if jsonName == "" {
+		return strings.ReplaceAll(`
+			{% if comma %} , {% endif %}
+			{innerTemplate}
+			{% code comma = true %}
+		`,
+			"{innerTemplate}", template)
+	}
 	return strings.ReplaceAll(strings.ReplaceAll(`
 			{% if comma %} , {% endif %}
 			"{jsonFieldName}":{innerTemplate}
@@ -164,6 +198,22 @@ func formatTemplate(jsonName, template string) string {
 }
 
 func generateInnerFieldTemplate(typ reflect.Type, fieldName string, f *SrcFile) (string, error) {
+	if typ.Kind() == reflect.Interface {
+		var bb bytes.Buffer
+		implementators := f.findInterfaceImplementators(typ)
+		bb.WriteString("{% ")
+		for i, impl := range implementators {
+			bb.WriteString(fmt.Sprintf("if v%d, ok := %s.(*%s); ok %%}\n", i, fieldName, impl))
+			bb.WriteString(fmt.Sprintf("				{%%= %s(v%d) %%}\n", generateQtcName(impl), i))
+			bb.WriteString("			{% else")
+		}
+
+		bb.WriteString(" %}\n")
+		bb.WriteString(fmt.Sprintf("				{%%code log.Fatalf(\"unknown interface implementator for field %[1]s. Value: %%+v\", %[1]s) %%}\n", fieldName))
+		bb.WriteString("			{% endif %}")
+
+		return bb.String(), nil
+	}
 	switch typ.Kind() {
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
 		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
@@ -312,7 +362,6 @@ var mapQTPLFormatInnerTemplate = `{
 					{% if i < {totalVar} %} , {% endif %}
 				{% endfor %}
 			}`
-
 var qtcFileContentTemplate = `
 	{%% func %[1]s(d *%[2]s) %%}
 		%[3]s

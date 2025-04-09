@@ -45,6 +45,17 @@ func main() {
 		log.Fatalf("failed to write generated go file. err: %s", err)
 	}
 
+	unmarshallingFile, err := f.GetUnmarshalFile()
+	if err != nil {
+		log.Fatalf("failed to get structure file. err: %s", err)
+	}
+
+	unmarshallingDstFileName := dstPath + "unmarshalling.gen.go"
+	err = os.WriteFile(unmarshallingDstFileName, []byte(unmarshallingFile), os.ModePerm)
+	if err != nil {
+		log.Fatalf("failed to write generated go file. err: %s", err)
+	}
+
 	qb, err := f.GetQTPLFile()
 	if err != nil {
 		log.Fatalf("failed to get QTPL file. err: %s", err)

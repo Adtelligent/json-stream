@@ -19,7 +19,7 @@ func (f *SrcFile) getCopyFromImplementation(structureName string, strType reflec
 			continue
 		}
 		switch field.Type.Kind() {
-		case reflect.Chan, reflect.Func, reflect.UnsafePointer, reflect.Interface:
+		case reflect.Chan, reflect.Func, reflect.UnsafePointer:
 			continue
 		case reflect.Array:
 			template = fmt.Sprintf(`
@@ -70,6 +70,18 @@ func (f *SrcFile) getCopyFromImplementation(structureName string, strType reflec
 			} else {
 				template = fmt.Sprintf("\tdst.%s = src.%s\n", field.Name, field.Name)
 			}
+		case reflect.Interface:
+			var interfaceCodeBuffer bytes.Buffer
+			for i, v := range f.findInterfaceImplementators(field.Type) {
+				interfaceCodeBuffer.WriteString(fmt.Sprintf(`if v%[1]d, ok := src.%[2]s.(*%[3]s); ok {
+			dst.%[2]s = v%[1]d.copy(redefiner, wildcardPath, indexedPath)
+		} else `, i, field.Name, v))
+			}
+			interfaceCodeBuffer.WriteString(fmt.Sprintf(`{
+			log.Printf("unknown %[1]s %%v", dst.%[1]s)
+		}`, field.Name))
+
+			template = fmt.Sprintf(interfaceCopyTemplate, field.Name, interfaceCodeBuffer.Bytes())
 		default:
 			template = fmt.Sprintf("\tdst.%s = src.%s\n", field.Name, field.Name)
 		}
@@ -259,6 +271,11 @@ var pointerCopyTemplate = `	if src.%[1]s == nil {
 		} else {
 			dst.%[1]s = src.%[1]s.copy(redefiner, append(wildcardPath, []byte(".%[1]s")...), indexedPath)
 		}
+	}
+`
+var interfaceCopyTemplate = `
+	if src.%[1]s != nil {
+		%[2]s
 	}
 `
 var copyFromTemplate = `

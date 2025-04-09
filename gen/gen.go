@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/Adtelligent/json-stream/reg"
 	"log"
+	"reflect"
 	"regexp"
 	"strings"
 )
@@ -13,9 +14,11 @@ import (
 var copyFunctionsFeature = flag.Bool("copyFunctionsFeature", true, "Add copy function to structures")
 
 type SrcFile struct {
-	Content     []byte
-	Structures  []string
-	PackageName string
+	Content                 []byte
+	Structures              []string
+	PackageName             string
+	Implementators          map[string]struct{}
+	ImplementatorStructures map[string]struct{}
 }
 
 func (f *SrcFile) init() {
@@ -23,6 +26,7 @@ func (f *SrcFile) init() {
 		f.Structures = append(f.Structures, v)
 	}
 	f.readPackageName()
+	f.findAllImplementators()
 }
 
 var packageNameReg = regexp.MustCompile(`package\s+(\w+)`)
@@ -72,6 +76,45 @@ func (f *SrcFile) GetStructureFile() (string, error) {
 	result.WriteString(getTypeMapMethodTemplate)
 	result.Write(body.Bytes())
 	return result.String(), nil
+}
+
+func (f *SrcFile) GetUnmarshalFile() (string, error) {
+	return f.getUnmarshalFile()
+}
+
+func (f *SrcFile) findInterfaceImplementators(interfaceType reflect.Type) []string {
+	result := []string{}
+	for _, s := range f.Structures {
+		if reflect.PointerTo(reg.TypeRegistry[s]).Implements(interfaceType) {
+			result = append(result, s)
+		}
+	}
+
+	return result
+}
+
+func (f *SrcFile) findAllImplementators() {
+	f.Implementators = make(map[string]struct{})
+	f.ImplementatorStructures = make(map[string]struct{})
+
+	for _, v := range f.Structures {
+		totalFields := reg.TypeRegistry[v].NumField()
+		for i := 0; i < totalFields; i++ {
+			field := reg.TypeRegistry[v].Field(i)
+			if field.Type.Kind() == reflect.Interface {
+				for _, impl := range f.findInterfaceImplementators(field.Type) {
+					f.Implementators[impl] = struct{}{}
+					t := reg.TypeRegistry[impl].Field(0).Type.Name()
+					f.ImplementatorStructures[t] = struct{}{}
+				}
+			}
+		}
+	}
+}
+
+func (f *SrcFile) isImplementator(className string) bool {
+	_, ok := f.Implementators[className]
+	return ok
 }
 
 func (f *SrcFile) GetQTPLFile() (string, error) {
