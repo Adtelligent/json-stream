@@ -87,7 +87,7 @@ func init() {
 	jsoniter.RegisterTypeDecoder("bool", &customBoolDecoder{})
 }
 
-func Unmarshal(data []byte, v interface{}) error {
+func UnmarshalJson(data []byte, v interface{}) error {
 	return json.Unmarshal(data, v)
 }
 `
