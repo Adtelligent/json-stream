@@ -293,6 +293,17 @@ func (src *{className}) Copy() *{className} {
     return src.copy(DefaultFieldsRedefiner, append(initPath, []byte("{className}")...), nil)
 }
 
+func (dst *{className}) CopyFrom(src *{className}) {
+	initPath := getSliceByte()
+	defer func() {
+		putSliceByte(initPath)
+	}()
+	wildcardPath := append(initPath, []byte("BidRequest_Source_SupplyChain_SupplyChainNode")...)
+	var indexedPath []byte
+	redefiner := DefaultFieldsRedefiner
+{copyFunction}
+}
+
 func (src *{className}) CopyWithRedefiner(redefiner FieldRedefiner) *{className} {
 	initPath := getSliceByte()
 	defer func() {
