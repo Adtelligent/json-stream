@@ -280,7 +280,7 @@ var interfaceCopyTemplate = `
 `
 var copyFromTemplate = `
 func (src *{className}) copy(redefiner FieldRedefiner, wildcardPath, indexedPath []byte) *{className} {
-    dst := new({className})
+    dst := Acquire{className}()
 {copyFunction}
     return dst
 }
