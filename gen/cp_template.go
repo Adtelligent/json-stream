@@ -298,7 +298,7 @@ func (dst *{className}) CopyFrom(src *{className}) {
 	defer func() {
 		putSliceByte(initPath)
 	}()
-	wildcardPath := append(initPath, []byte("BidRequest_Source_SupplyChain_SupplyChainNode")...)
+	wildcardPath := append(initPath, []byte("{className}")...)
 	var indexedPath []byte
 	redefiner := DefaultFieldsRedefiner
 {copyFunction}
