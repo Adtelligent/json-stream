@@ -285,7 +285,15 @@ func (src *{className}) copy(redefiner FieldRedefiner, wildcardPath, indexedPath
     return dst
 }
 
-func (src *{className}) Copy(redefiner FieldRedefiner) *{className} {
+func (src *{className}) Copy() *{className} {
+	initPath := getSliceByte()
+	defer func() {
+		putSliceByte(initPath)
+	}()
+    return src.copy(DefaultFieldsRedefiner, append(initPath, []byte("{className}")...), nil)
+}
+
+func (src *{className}) CopyWithRedefiner(redefiner FieldRedefiner) *{className} {
 	initPath := getSliceByte()
 	defer func() {
 		putSliceByte(initPath)
