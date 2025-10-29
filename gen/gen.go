@@ -4,11 +4,12 @@ import (
 	"bytes"
 	"flag"
 	"fmt"
-	"github.com/Adtelligent/json-stream/reg"
 	"log"
 	"reflect"
 	"regexp"
 	"strings"
+
+	"github.com/Adtelligent/json-stream/reg"
 )
 
 var copyFunctionsFeature = flag.Bool("copyFunctionsFeature", true, "Add copy function to structures")
@@ -215,6 +216,43 @@ func getSliceByte() []byte {
 
 func putSliceByte(slice []byte) {
 	sliceBytePool.Put(slice[:0])
+}
+
+var FieldsMasksZero *FieldsLimiter
+
+// FieldsMask is an interface that controls which fields are included during JSON marshaling.
+// Parameters:
+// - path: A path string identifying the field, e.g., "BidRequest.Device.Ip".
+//         The format follows the structure: "{StructName}.{FieldName}" or nested paths.
+// The In method should return true if the field should be included in the output;
+// if false, the field will be omitted from the JSON.
+type FieldsMask interface {
+	In(path string) bool
+}
+
+type FieldsLimiter struct {
+	Fields map[string]struct{}
+}
+
+func (m *FieldsLimiter) In(path string) bool {
+	if m == nil {
+		return true
+	}
+
+	_, ok := m.Fields[path]
+	return ok
+}
+
+type FieldsScanner struct {
+	Fields map[string]struct{}
+}
+
+func (m *FieldsScanner) In(path string) bool {
+	if m.Fields == nil {
+		m.Fields = make(map[string]struct{})
+	}
+	m.Fields[path] = struct{}{}
+	return true
 }
 `
 

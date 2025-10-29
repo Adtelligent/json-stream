@@ -459,13 +459,19 @@ var mapIntGetValueTemplate = `		if len(parts) < 3 {
 		return unsafe.Pointer(&value), GetType("{className}.%[1]s"), nil`
 
 var marshalJsonTemplate = `
-func (dst *{className}) MarshalJson() ([]byte, error) {
+func (dst *{className}) MarshalJson(mask FieldsMask) ([]byte, error) {
 	var bb  bytes.Buffer
-	write{qtcName}(&bb, dst)
+	write{qtcName}(&bb, dst, mask)
 	return bb.Bytes(), nil
 }
 
-func (dst *{className}) WriteJsonTo(w io.Writer)  {
-	write{qtcName}(w, dst)
+func (dst *{className}) WriteJsonTo(w io.Writer, mask FieldsMask)  {
+	write{qtcName}(w, dst, mask)
+}
+
+func (dst *{className}) MarshalJSON() ([]byte, error) {
+	var bb  bytes.Buffer
+	write{qtcName}(&bb, dst, FieldsMasksZero)
+	return bb.Bytes(), nil
 }
 `
