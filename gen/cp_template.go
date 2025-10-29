@@ -292,6 +292,10 @@ func (src *{className}) Copy(redefiner FieldRedefiner) *{className} {
 	}()
     return src.copy(redefiner, append(initPath, []byte("{className}")...), nil)
 }
+
+func Acquire{className}() *{className}  {
+	return new({className})
+}
 `
 
 var getUnsafePointerTemplate = `
