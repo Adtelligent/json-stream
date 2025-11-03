@@ -95,8 +95,22 @@ func wrapTemplateWithCondition(template string, field reflect.StructField, class
 	return fmt.Sprintf("{%% if %s %%}%s{%% endif %%}\n", condition, template)
 }
 
+func wrapTemplateWithConditionForImplementator(template string, field reflect.StructField, className string) string {
+	fieldName := field.Name
+	condition := fmt.Sprintf("mask.In(\"%[1]s.%[2]s\")", className, fieldName)
+	return fmt.Sprintf("{%% if %s %%}%s{%% endif %%}\n", condition, template)
+}
+
 func replaceMacros(template string, className string, field reflect.StructField) string {
 	template = wrapTemplateWithCondition(template, field, className)
+	template = strings.Replace(template, "{fieldName}", field.Name, -1)
+	template = strings.Replace(template, "{className}", className, -1)
+	template = strings.Replace(template, "{qtplFunc}", generateQtcName(getPrintableClassName(field.Type.String())), -1)
+	return template
+}
+
+func replaceMacrosForImplementator(template string, className string, field reflect.StructField) string {
+	template = wrapTemplateWithConditionForImplementator(template, field, className)
 	template = strings.Replace(template, "{fieldName}", field.Name, -1)
 	template = strings.Replace(template, "{className}", className, -1)
 	template = strings.Replace(template, "{qtplFunc}", generateQtcName(getPrintableClassName(field.Type.String())), -1)
@@ -142,7 +156,6 @@ func getStructureJSON(className string, f *SrcFile) (string, error) {
 func getImplementatorJSON(className string, f *SrcFile) (string, error) {
 	var result bytes.Buffer
 	str := reg.TypeRegistry[className]
-	result.WriteString("		{% code comma := false %}\n")
 	for i := 0; i < str.NumField(); i++ {
 		field := str.Field(i)
 		jsonName := getJsonName(field)
@@ -151,12 +164,12 @@ func getImplementatorJSON(className string, f *SrcFile) (string, error) {
 			continue
 		}
 
-		fieldTemplate, err := generateFieldTemplate(field.Type, field, f, jsonName)
+		fieldTemplate, err := generateFieldTemplateForImplementator(field.Type, field, f, jsonName)
 		if err != nil {
 			return "", fmt.Errorf("error generating template for field %s: %w", field.Name, err)
 		}
 
-		result.WriteString(replaceMacros(fieldTemplate, className, field))
+		result.WriteString(replaceMacrosForImplementator(fieldTemplate, className, field))
 	}
 	return result.String(), nil
 }
@@ -168,6 +181,16 @@ func generateFieldTemplate(typ reflect.Type, field reflect.StructField, f *SrcFi
 		return "", err
 	}
 	wrappedTemplate := formatTemplate(jsonName, template)
+	return wrappedTemplate, nil
+}
+
+func generateFieldTemplateForImplementator(typ reflect.Type, field reflect.StructField, f *SrcFile, jsonName string) (string, error) {
+	fieldName := formatFieldName(typ, field.Name)
+	template, err := generateInnerFieldTemplate(typ, fieldName, f)
+	if err != nil {
+		return "", err
+	}
+	wrappedTemplate := formatTemplateForImplementator(jsonName, template)
 	return wrappedTemplate, nil
 }
 
@@ -196,6 +219,16 @@ func formatTemplate(jsonName, template string) string {
 		`,
 		"{innerTemplate}", template),
 		"{jsonFieldName}", jsonName)
+}
+
+func formatTemplateForImplementator(jsonName, template string) string {
+	if jsonName == "" {
+		return template
+	}
+	return strings.ReplaceAll(
+		strings.ReplaceAll(`"{jsonFieldName}":{innerTemplate}`, "{innerTemplate}", template),
+		"{jsonFieldName}", jsonName,
+	)
 }
 
 func generateInnerFieldTemplate(typ reflect.Type, fieldName string, f *SrcFile) (string, error) {
