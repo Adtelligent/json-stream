@@ -28,15 +28,7 @@ func (f *SrcFile) getCopyFromImplementation(structureName string, strType reflec
 				}
 			`, field.Name)
 		case reflect.Struct:
-			template = fmt.Sprintf(`	if indexedPath != nil {
-		dst.%[1]s = src.%[1]s.copy(redefiner, append(wildcardPath, []byte(".%[1]s")...), append(indexedPath, []byte(".%[1]s")...) )
-	} else {
-		dst.%[1]s = src.%[1]s.copy(redefiner, append(wildcardPath, []byte(".%[1]s")...), indexedPath)
-	}
-`, field.Name)
-			template = fmt.Sprintf("if indexedPath != nil {"+
-				""+
-				"\tdst.%[1]s = src.%[1]s.copy(redefiner, append(wildcardPath, []byte(\".%[1]s\")...), indexedPath)\n", field.Name)
+			template = fmt.Sprintf("\tdst.%[1]s = src.%[1]s.copy(redefiner, append(wildcardPath, []byte(\".%[1]s\")...), nil)\n", field.Name)
 		case reflect.Map:
 			valueType := field.Type.Elem()
 			className := field.Type.String()
@@ -74,7 +66,7 @@ func (f *SrcFile) getCopyFromImplementation(structureName string, strType reflec
 			var interfaceCodeBuffer bytes.Buffer
 			for i, v := range f.findInterfaceImplementators(field.Type) {
 				interfaceCodeBuffer.WriteString(fmt.Sprintf(`if v%[1]d, ok := src.%[2]s.(*%[3]s); ok {
-			dst.%[2]s = v%[1]d.copy(redefiner, wildcardPath, indexedPath)
+			dst.%[2]s = v%[1]d.copy(redefiner, wildcardPath, nil)
 		} else `, i, field.Name, v))
 			}
 			interfaceCodeBuffer.WriteString(fmt.Sprintf(`{
@@ -95,7 +87,7 @@ func wrapCpTemplateWithRedefiner(className string, template string, field reflec
 	fieldName := field.Name
 	indentedTemplate := indentLines(template, "\t")
 
-	return fmt.Sprintf("\tif !redefiner.Redefine(\"%[2]s.%[1]s\", wildcardPath, []byte(\"%[1]s\"), unsafe.Pointer(&src.%[1]s), unsafe.Pointer(&dst.%[1]s)) && (indexedPath == nil || !redefiner.Redefine(\"%[2]s.%[1]s\", indexedPath, []byte(\"%[1]s\"), unsafe.Pointer(&src.%[1]s), unsafe.Pointer(&dst.%[1]s))) {\n%[3]s\t}\n", fieldName, className, indentedTemplate)
+	return fmt.Sprintf("\tif !redefiner.Redefine(\"%[2]s.%[1]s\", wildcardPath, []byte(\"%[1]s\"), unsafe.Pointer(&src.%[1]s), unsafe.Pointer(&dst.%[1]s)) {\n%[3]s\t}\n", fieldName, className, indentedTemplate)
 }
 
 func indentLines(s, prefix string) string {
@@ -211,11 +203,7 @@ var mapStrCopyTemplateForPointer = `	if len(src.%[1]s) == 0 {
 			if v == nil {
 				dst.%[1]s[k] = nil
 			} else {
-				if indexedPath != nil {
-					dst.%[1]s[k] = v.copy(redefiner, append(wildcardPath, []byte(".%[1]s")...), append(indexedPath, []byte(".%[1]s")...))
-				} else {
-					dst.%[1]s[k] = v.copy(redefiner, append(wildcardPath, []byte(".%[1]s")...), indexedPath)
-				}
+				dst.%[1]s[k] = v.copy(redefiner, append(wildcardPath, []byte(".%[1]s")...), nil)
 			}
 		}
 	}
@@ -231,29 +219,18 @@ var mapIntCopyTemplateForPointer = `	if len(src.%[1]s) == 0 {
 			if v == nil {
 				dst.%[1]s[k] = nil
 			} else {
-				if indexedPath != nil {
-					dst.%[1]s[k] = v.copy(redefiner, append(wildcardPath, []byte(".%[1]s")...), append(indexedPath, []byte(".%[1]s")...))
-				} else {
-					dst.%[1]s[k] = v.copy(redefiner, append(wildcardPath, []byte(".%[1]s")...), indexedPath)
-				}
+				dst.%[1]s[k] = v.copy(redefiner, append(wildcardPath, []byte(".%[1]s")...), nil)
 			}
 		}
 	}
 `
 
 var sliceOfPointerCopyTemplate = `	dst.%[1]s = dst.%[1]s[:0]
-	for i, d := range src.%[1]s {
+	for _, d := range src.%[1]s {
 		if d == nil {
 			dst.%[1]s = append(dst.%[1]s, nil)
 		} else {
-			if indexedPath != nil {
-				dst.%[1]s = append(dst.%[1]s, d.copy(redefiner, append(wildcardPath, []byte(".%[1]s")...), append(append(indexedPath, []byte(".%[1]s.")...), strconv.Itoa(i)...)))
-			} else {
-				currentIndexedPath := getSliceByte()
-				currentIndexedPath = append(currentIndexedPath, wildcardPath...)
-				dst.%[1]s = append(dst.%[1]s, d.copy(redefiner, append(wildcardPath, []byte(".%[1]s")...), append(append(currentIndexedPath, []byte(".%[1]s.")...), strconv.Itoa(i)...)))
-				putSliceByte(currentIndexedPath)
-			}
+			dst.%[1]s = append(dst.%[1]s, d.copy(redefiner, append(wildcardPath, []byte(".%[1]s")...), nil))
 		}
 	}
 `
@@ -266,11 +243,7 @@ var structpbCopyTemplate = `	if src.%[1]s == nil {
 var pointerCopyTemplate = `	if src.%[1]s == nil {
 		dst.%[1]s = nil
 	} else {
-		if indexedPath != nil {
-			dst.%[1]s = src.%[1]s.copy(redefiner, append(wildcardPath, []byte(".%[1]s")...), append(indexedPath, []byte(".%[1]s")...))
-		} else {
-			dst.%[1]s = src.%[1]s.copy(redefiner, append(wildcardPath, []byte(".%[1]s")...), indexedPath)
-		}
+		dst.%[1]s = src.%[1]s.copy(redefiner, append(wildcardPath, []byte(".%[1]s")...), nil)
 	}
 `
 var interfaceCopyTemplate = `
@@ -299,7 +272,6 @@ func (dst *{className}) CopyFrom(src *{className}) {
 		putSliceByte(initPath)
 	}()
 	wildcardPath := append(initPath, []byte("{className}")...)
-	var indexedPath []byte
 	redefiner := DefaultFieldsRedefiner
 {copyFunction}
 }
