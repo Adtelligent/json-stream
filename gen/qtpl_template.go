@@ -129,6 +129,7 @@ func getPrintableClassName(t string) string {
 func getStructureJSON(className string, f *SrcFile) (string, error) {
 	str := reg.TypeRegistry[className]
 	var result bytes.Buffer
+	result.WriteString("{% if d != nil %}\n")
 	result.WriteString("{\n")
 	result.WriteString("		{% code comma := false %}\n")
 
@@ -149,6 +150,7 @@ func getStructureJSON(className string, f *SrcFile) (string, error) {
 	}
 
 	result.WriteString("	}")
+	result.WriteString("\n{% endif %}\n")
 
 	return result.String(), nil
 }
