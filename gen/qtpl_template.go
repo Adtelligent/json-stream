@@ -83,7 +83,9 @@ func wrapTemplateWithCondition(template string, field reflect.StructField, class
 		condition = fmt.Sprintf("d.%[2]s != nil && mask.In(\"%[1]s.%[2]s\")", className, fieldName)
 	case reflect.Struct:
 		condition = fmt.Sprintf("&d.%[2]s != nil && mask.In(\"%[1]s.%[2]s\")", className, fieldName)
-	case reflect.String, reflect.Slice, reflect.Map, reflect.Array:
+	case reflect.String:
+		condition = fmt.Sprintf("d.%[2]s != \"\" && mask.In(\"%[1]s.%[2]s\")", className, fieldName)
+	case reflect.Slice, reflect.Map, reflect.Array:
 		condition = fmt.Sprintf("len(d.%[2]s) != 0 && mask.In(\"%[1]s.%[2]s\")", className, fieldName)
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
 		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
