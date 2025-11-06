@@ -6,6 +6,8 @@ import (
 	"reflect"
 	"regexp"
 	"strings"
+
+	"github.com/Adtelligent/json-stream/reg"
 )
 
 var regexpForPackage = regexp.MustCompile(`\b\w+\.`)
@@ -65,15 +67,27 @@ func (f *SrcFile) getCopyFromImplementation(structureName string, strType reflec
 		case reflect.Interface:
 			var interfaceCodeBuffer bytes.Buffer
 			for i, v := range f.findInterfaceImplementators(field.Type) {
-				interfaceCodeBuffer.WriteString(fmt.Sprintf(`if v%[1]d, ok := src.%[2]s.(*%[3]s); ok {
+				wrapperType := reg.TypeRegistry[v]
+				if wrapperType.NumField() > 0 {
+					innerFieldName := wrapperType.Field(0).Name
+					interfaceCodeBuffer.WriteString(fmt.Sprintf(`if v%[1]d, ok := src.%[2]s.(*%[3]s); ok {
+			if !redefiner.Redefine("%[5]s.%[4]s", wildcardPath, []byte("%[4]s"), unsafe.Pointer(&v%[1]d.%[4]s), unsafe.Pointer(&dst.%[2]s)) {
+				dst.%[2]s = v%[1]d.copy(redefiner, append(wildcardPath, []byte(".%[4]s")...), nil)
+			}
+		} else `, i, field.Name, v, innerFieldName, structureName))
+				} else {
+					interfaceCodeBuffer.WriteString(fmt.Sprintf(`if v%[1]d, ok := src.%[2]s.(*%[3]s); ok {
 			dst.%[2]s = v%[1]d.copy(redefiner, wildcardPath, nil)
 		} else `, i, field.Name, v))
+				}
 			}
 			interfaceCodeBuffer.WriteString(fmt.Sprintf(`{
 			log.Printf("unknown %[1]s %%v", dst.%[1]s)
 		}`, field.Name))
 
 			template = fmt.Sprintf(interfaceCopyTemplate, field.Name, interfaceCodeBuffer.Bytes())
+			result.WriteString(template)
+			continue
 		default:
 			template = fmt.Sprintf("\tdst.%s = src.%s\n", field.Name, field.Name)
 		}
