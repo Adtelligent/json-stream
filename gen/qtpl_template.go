@@ -190,6 +190,12 @@ func generateFieldTemplateForImplementator(typ reflect.Type, field reflect.Struc
 	if err != nil {
 		return "", err
 	}
+
+	if typ.Kind() == reflect.Ptr && jsonName != "" {
+		fullTemplate := fmt.Sprintf("{%% if d.%s != nil %%}\"%s\":%s{%% endif %%}", field.Name, jsonName, template)
+		return fullTemplate, nil
+	}
+
 	wrappedTemplate := formatTemplateForImplementator(jsonName, template)
 	return wrappedTemplate, nil
 }

@@ -52,7 +52,11 @@ func (f *SrcFile) GetStructureFile() (string, error) {
 			if err != nil {
 				return "", err
 			}
-			body.WriteString(generateCopyFunction(className, string(copyFunction)))
+			if f.isImplementator(className) {
+				body.WriteString(generateCopyFunctionForImplementator(className, string(copyFunction)))
+			} else {
+				body.WriteString(generateCopyFunction(className, string(copyFunction)))
+			}
 
 		}
 		body.WriteString(generateMarshalJsonFile(className))

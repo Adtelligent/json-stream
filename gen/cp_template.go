@@ -15,6 +15,8 @@ var regexpForPackage = regexp.MustCompile(`\b\w+\.`)
 func (f *SrcFile) getCopyFromImplementation(structureName string, strType reflect.Type) ([]byte, error) {
 	var result bytes.Buffer
 	var template string
+	isImplementator := f.isImplementator(structureName)
+
 	for i := 0; i < strType.NumField(); i++ {
 		field := strType.Field(i)
 		if !field.IsExported() {
@@ -30,7 +32,7 @@ func (f *SrcFile) getCopyFromImplementation(structureName string, strType reflec
 				}
 			`, field.Name)
 		case reflect.Struct:
-			template = fmt.Sprintf("\tdst.%[1]s = src.%[1]s.copy(redefiner, append(wildcardPath, []byte(\".%[1]s\")...), nil)\n", field.Name)
+			template = fmt.Sprintf("\tdst.%[1]s = src.%[1]s.copy(redefiner, append(wildcardPath, []byte(\".%[1]s\")...))\n", field.Name)
 		case reflect.Map:
 			valueType := field.Type.Elem()
 			className := field.Type.String()
@@ -60,7 +62,11 @@ func (f *SrcFile) getCopyFromImplementation(structureName string, strType reflec
 				template = fmt.Sprintf(structpbCopyTemplate, field.Name)
 			} else if field.Type.Elem().Kind() == reflect.Struct {
 				fieldType := strings.Replace(field.Type.Elem().Name(), f.PackageName+".", "", 1)
-				template = fmt.Sprintf(pointerCopyTemplate, field.Name, fieldType)
+				if isImplementator {
+					template = fmt.Sprintf(pointerCopyTemplateImplementatorWithNilCheck, field.Name, fieldType)
+				} else {
+					template = fmt.Sprintf(pointerCopyTemplate, field.Name, fieldType)
+				}
 			} else {
 				template = fmt.Sprintf("\tdst.%s = src.%s\n", field.Name, field.Name)
 			}
@@ -70,14 +76,20 @@ func (f *SrcFile) getCopyFromImplementation(structureName string, strType reflec
 				wrapperType := reg.TypeRegistry[v]
 				if wrapperType.NumField() > 0 {
 					innerFieldName := wrapperType.Field(0).Name
-					interfaceCodeBuffer.WriteString(fmt.Sprintf(`if v%[1]d, ok := src.%[2]s.(*%[3]s); ok {
+					innerFieldType := wrapperType.Field(0).Type
+					nilCheck := ""
+					if innerFieldType.Kind() == reflect.Ptr || innerFieldType.Kind() == reflect.Interface {
+						nilCheck = fmt.Sprintf(" && v%d.%s != nil", i, innerFieldName)
+					}
+
+					interfaceCodeBuffer.WriteString(fmt.Sprintf(`if v%[1]d, ok := src.%[2]s.(*%[3]s); ok%[6]s {
 			if !redefiner.Redefine("%[5]s.%[4]s", wildcardPath, []byte("%[4]s"), unsafe.Pointer(&v%[1]d.%[4]s), unsafe.Pointer(&dst.%[2]s)) {
-				dst.%[2]s = v%[1]d.copy(redefiner, append(wildcardPath, []byte(".%[4]s")...), nil)
+				dst.%[2]s = v%[1]d.copy(redefiner, append(wildcardPath, []byte(".%[4]s")...))
 			}
-		} else `, i, field.Name, v, innerFieldName, structureName))
+		} else `, i, field.Name, v, innerFieldName, structureName, nilCheck))
 				} else {
 					interfaceCodeBuffer.WriteString(fmt.Sprintf(`if v%[1]d, ok := src.%[2]s.(*%[3]s); ok {
-			dst.%[2]s = v%[1]d.copy(redefiner, wildcardPath, nil)
+			dst.%[2]s = v%[1]d.copy(redefiner, wildcardPath)
 		} else `, i, field.Name, v))
 				}
 			}
@@ -92,7 +104,11 @@ func (f *SrcFile) getCopyFromImplementation(structureName string, strType reflec
 			template = fmt.Sprintf("\tdst.%s = src.%s\n", field.Name, field.Name)
 		}
 
-		result.WriteString(wrapCpTemplateWithRedefiner(structureName, template, field))
+		if isImplementator {
+			result.WriteString(template)
+		} else {
+			result.WriteString(wrapCpTemplateWithRedefiner(structureName, template, field))
+		}
 	}
 	return result.Bytes(), nil
 }
@@ -117,6 +133,13 @@ func indentLines(s, prefix string) string {
 func generateCopyFunction(className, copyFunction string) string {
 	result := strings.ReplaceAll(copyFromTemplate, "{className}", className)
 	result = strings.ReplaceAll(result, "{copyFunction}", copyFunction)
+	return result
+}
+
+func generateCopyFunctionForImplementator(className, copyFunction string) string {
+	suppressUnused := "\t_ = redefiner\n\t_ = wildcardPath\n"
+	result := strings.ReplaceAll(copyFromTemplate, "{className}", className)
+	result = strings.ReplaceAll(result, "{copyFunction}", suppressUnused+copyFunction)
 	return result
 }
 
@@ -217,7 +240,7 @@ var mapStrCopyTemplateForPointer = `	if len(src.%[1]s) == 0 {
 			if v == nil {
 				dst.%[1]s[k] = nil
 			} else {
-				dst.%[1]s[k] = v.copy(redefiner, append(wildcardPath, []byte(".%[1]s")...), nil)
+				dst.%[1]s[k] = v.copy(redefiner, append(wildcardPath, []byte(".%[1]s")...))
 			}
 		}
 	}
@@ -233,7 +256,7 @@ var mapIntCopyTemplateForPointer = `	if len(src.%[1]s) == 0 {
 			if v == nil {
 				dst.%[1]s[k] = nil
 			} else {
-				dst.%[1]s[k] = v.copy(redefiner, append(wildcardPath, []byte(".%[1]s")...), nil)
+				dst.%[1]s[k] = v.copy(redefiner, append(wildcardPath, []byte(".%[1]s")...))
 			}
 		}
 	}
@@ -244,7 +267,7 @@ var sliceOfPointerCopyTemplate = `	dst.%[1]s = dst.%[1]s[:0]
 		if d == nil {
 			dst.%[1]s = append(dst.%[1]s, nil)
 		} else {
-			dst.%[1]s = append(dst.%[1]s, d.copy(redefiner, append(wildcardPath, []byte(".%[1]s")...), nil))
+			dst.%[1]s = append(dst.%[1]s, d.copy(redefiner, append(wildcardPath, []byte(".%[1]s")...)))
 		}
 	}
 `
@@ -257,7 +280,11 @@ var structpbCopyTemplate = `	if src.%[1]s == nil {
 var pointerCopyTemplate = `	if src.%[1]s == nil {
 		dst.%[1]s = nil
 	} else {
-		dst.%[1]s = src.%[1]s.copy(redefiner, append(wildcardPath, []byte(".%[1]s")...), nil)
+		dst.%[1]s = src.%[1]s.copy(redefiner, append(wildcardPath, []byte(".%[1]s")...))
+	}
+`
+var pointerCopyTemplateImplementatorWithNilCheck = `	if src.%[1]s != nil {
+		dst.%[1]s = src.%[1]s.copy(redefiner, wildcardPath)
 	}
 `
 var interfaceCopyTemplate = `
@@ -266,7 +293,7 @@ var interfaceCopyTemplate = `
 	}
 `
 var copyFromTemplate = `
-func (src *{className}) copy(redefiner FieldRedefiner, wildcardPath, indexedPath []byte) *{className} {
+func (src *{className}) copy(redefiner FieldRedefiner, wildcardPath []byte) *{className} {
     dst := Acquire{className}()
 {copyFunction}
     return dst
@@ -277,7 +304,7 @@ func (src *{className}) Copy() *{className} {
 	defer func() {
 		putSliceByte(initPath)
 	}()
-    return src.copy(DefaultFieldsRedefiner, append(initPath, []byte("{className}")...), nil)
+    return src.copy(DefaultFieldsRedefiner, append(initPath, []byte("{className}")...))
 }
 
 func (dst *{className}) CopyFrom(src *{className}) {
@@ -295,7 +322,7 @@ func (src *{className}) CopyWithRedefiner(redefiner FieldRedefiner) *{className}
 	defer func() {
 		putSliceByte(initPath)
 	}()
-    return src.copy(redefiner, append(initPath, []byte("{className}")...), nil)
+    return src.copy(redefiner, append(initPath, []byte("{className}")...))
 }
 
 func Acquire{className}() *{className}  {
