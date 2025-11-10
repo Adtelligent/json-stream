@@ -88,7 +88,7 @@ func wrapTemplateWithCondition(template string, field reflect.StructField, class
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
 		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
 		reflect.Float32, reflect.Float64:
-		condition = fmt.Sprintf("mask.In(\"%[1]s.%[2]s\")", className, fieldName)
+		condition = fmt.Sprintf("d.%[2]s != 0 && mask.In(\"%[1]s.%[2]s\")", className, fieldName)
 	default:
 		return template
 	}
