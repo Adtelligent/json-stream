@@ -2,15 +2,72 @@ package gen
 
 import (
 	"bytes"
+	"encoding/json"
 	"flag"
 	"fmt"
+	"os"
 	"reflect"
 	"strings"
 
 	"github.com/Adtelligent/json-stream/reg"
 )
 
-var boolToInt = flag.Bool("boolToInt", false, "bool to int generation")
+var (
+	boolToInt            = flag.Bool("boolToInt", false, "bool to int generation")
+	requiredFieldsConfig = flag.String("requiredFields", "", "path to JSON config with required fields (used during code generation)")
+)
+
+// Required fields are always output in JSON without empty value checks.
+var requiredFieldsRegistry = make(map[string]map[string]struct{})
+
+// LoadRequiredFieldsConfig loads required fields configuration from JSON file.
+// This is used during code generation to determine which fields should skip empty checks.
+//
+// JSON format: {"ClassName": ["Field1", "Field2"], ...}
+//
+// Example config.json:
+//
+//	{
+//	  "BidRequest": ["Allimps"],
+//	  "BidRequest_Imp_Video": ["Protocols", "Api"]
+//	}
+func LoadRequiredFieldsConfig(filePath string) error {
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to read required fields config: %w", err)
+	}
+
+	var config map[string][]string
+	if err := json.Unmarshal(data, &config); err != nil {
+		return fmt.Errorf("failed to parse required fields config: %w", err)
+	}
+
+	for className, fields := range config {
+		if requiredFieldsRegistry[className] == nil {
+			requiredFieldsRegistry[className] = make(map[string]struct{})
+		}
+		for _, field := range fields {
+			requiredFieldsRegistry[className][field] = struct{}{}
+		}
+	}
+
+	return nil
+}
+
+func LoadRequiredFieldsIfConfigured() error {
+	if requiredFieldsConfig != nil && *requiredFieldsConfig != "" {
+		return LoadRequiredFieldsConfig(*requiredFieldsConfig)
+	}
+	return nil
+}
+
+func isRequiredField(className string, field reflect.StructField) bool {
+	if classFields, ok := requiredFieldsRegistry[className]; ok {
+		_, isRequired := classFields[field.Name]
+		return isRequired
+	}
+	return false
+}
 
 func GetQTPLFile(className string, f *SrcFile) (string, error) {
 	res, err := getWriteJSON(className, f)
@@ -76,8 +133,12 @@ func getWriteJSON(className string, f *SrcFile) (string, error) {
 
 func wrapTemplateWithCondition(template string, field reflect.StructField, className string) string {
 	fieldName := field.Name
-	var condition string
 
+	if isRequiredField(className, field) {
+		return fmt.Sprintf("%s", template)
+	}
+
+	var condition string
 	switch field.Type.Kind() {
 	case reflect.Ptr, reflect.Interface:
 		condition = fmt.Sprintf("d.%[2]s != nil && mask.In(\"%[1]s.%[2]s\")", className, fieldName)

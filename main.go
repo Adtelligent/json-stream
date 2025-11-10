@@ -2,10 +2,11 @@ package main
 
 import (
 	"flag"
-	"github.com/Adtelligent/json-stream/gen"
 	"log"
 	"os"
 	"path/filepath"
+
+	"github.com/Adtelligent/json-stream/gen"
 )
 
 var prepocessing = flag.Bool("prepocessing", false, "is prepocessing mode")
@@ -19,6 +20,10 @@ func main() {
 
 	sourcePath := args[len(args)-2]
 	dstPath := args[len(args)-1]
+
+	if err := gen.LoadRequiredFieldsIfConfigured(); err != nil {
+		log.Fatalf("failed to load required fields config: %s", err)
+	}
 
 	b, info, err := readCombinedContent(sourcePath)
 	if err != nil {
