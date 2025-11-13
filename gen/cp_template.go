@@ -58,8 +58,8 @@ func (f *SrcFile) getCopyFromImplementation(structureName string, strType reflec
 				template = fmt.Sprintf("\tdst.%[1]s = append(dst.%[1]s[:0], src.%[1]s...)\n", field.Name)
 			}
 		case reflect.Ptr:
-			if field.Type.Elem().String() == "structpb.Struct" {
-				template = fmt.Sprintf(structpbCopyTemplate, field.Name)
+			if field.Type.Elem().String() == "structpb.Struct" || field.Type.Elem().String() == "structpb.Value" {
+				template = fmt.Sprintf(structpbCopyTemplate, field.Name, field.Type.Elem().String())
 			} else if field.Type.Elem().Kind() == reflect.Struct {
 				fieldType := strings.Replace(field.Type.Elem().Name(), f.PackageName+".", "", 1)
 				if isImplementator {
@@ -169,7 +169,7 @@ func generateGetValueUnsafePointerMethod(className string, strType reflect.Type)
 		case reflect.Struct:
 			caseCode = fmt.Sprintf(structGetValueTemplate, field.Name)
 		case reflect.Ptr:
-			if field.Type.Elem().Kind() == reflect.Struct && field.Type.Elem().String() != "structpb.Struct" {
+			if field.Type.Elem().Kind() == reflect.Struct && field.Type.Elem().String() != "structpb.Struct" && field.Type.Elem().String() != "structpb.Value" {
 				caseCode = fmt.Sprintf(ptrStructGetValueTemplate, field.Name)
 			} else {
 				caseCode = fmt.Sprintf(ptrGetValueTemplate, field.Name)
@@ -274,7 +274,7 @@ var sliceOfPointerCopyTemplate = `	dst.%[1]s = dst.%[1]s[:0]
 var structpbCopyTemplate = `	if src.%[1]s == nil {
 		dst.%[1]s = nil
 	} else {
-		dst.%[1]s = proto.Clone(src.%[1]s).(*structpb.Struct)
+		dst.%[1]s = proto.Clone(src.%[1]s).(*%[2]s)
 	}
 `
 var pointerCopyTemplate = `	if src.%[1]s == nil {

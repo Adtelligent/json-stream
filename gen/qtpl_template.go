@@ -368,7 +368,7 @@ func generateSliceTemplate(typ reflect.Type, fieldName string, f *SrcFile) (stri
 func generateStructTemplate(typ reflect.Type, fieldName string) (string, error) {
 	fieldName = strings.ReplaceAll(fieldName, "*", "")
 	if _, ok := reg.TypeRegistry[typ.Name()]; !ok {
-		if typ.String() == "structpb.Struct" {
+		if typ.String() == "structpb.Struct" || typ.String() == "structpb.Value" {
 			return replaceTemplate(structpbQTPLFormatTemplate, fieldName), nil
 		}
 		return "", fmt.Errorf("unknown struct %s", typ.Name())
