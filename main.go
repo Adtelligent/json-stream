@@ -37,6 +37,13 @@ func main() {
 		return
 	}
 
+	defer func() {
+		err := gen.RemovePreprocessFiles()
+		if err != nil {
+			log.Fatalf("failed to remove preprocess files. err: %s", err)
+		}
+	}()
+
 	f := gen.NewWithContent(b)
 
 	structuresFile, err := f.GetStructureFile()
@@ -70,10 +77,6 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to write generated qtpl file. err: %s", err)
 	}
-	err = gen.RemovePreprocessFiles()
-	if err != nil {
-		log.Fatalf("failed to remove preprocess files. err: %s", err)
-	}
 }
 
 func readCombinedContent(path string) ([]byte, os.FileInfo, error) {
@@ -83,7 +86,11 @@ func readCombinedContent(path string) ([]byte, os.FileInfo, error) {
 	}
 	var content []byte
 	if info.IsDir() {
-		firstFile := true
+		var allImports []string
+		var packageName string
+		var bodies []string
+		importSet := make(map[string]struct{})
+
 		err := filepath.Walk(path, func(p string, fi os.FileInfo, err error) error {
 			if err != nil {
 				return err
@@ -96,17 +103,40 @@ func readCombinedContent(path string) ([]byte, os.FileInfo, error) {
 				return err
 			}
 			fileContent := string(data)
-			if !firstFile {
-				fileContent = gen.RemovePackageDeclaration(fileContent)
-			} else {
-				firstFile = false
+
+			if packageName == "" {
+				packageName = extractPackageName(fileContent)
 			}
-			content = append(content, []byte(fileContent)...)
+
+			imports := gen.ExtractImports(fileContent)
+			for _, imp := range imports {
+				if _, exists := importSet[imp]; !exists {
+					importSet[imp] = struct{}{}
+					allImports = append(allImports, imp)
+				}
+			}
+
+			body := gen.RemovePackageAndImports(fileContent)
+			bodies = append(bodies, body)
 			return nil
 		})
 		if err != nil {
 			return nil, nil, err
 		}
+
+		var result string
+		result += "package " + packageName + "\n\n"
+		if len(allImports) > 0 {
+			result += "import (\n"
+			for _, imp := range allImports {
+				result += "\t" + imp + "\n"
+			}
+			result += ")\n"
+		}
+		for _, body := range bodies {
+			result += body
+		}
+		content = []byte(result)
 	} else {
 		content, err = os.ReadFile(path)
 		if err != nil {
@@ -114,4 +144,45 @@ func readCombinedContent(path string) ([]byte, os.FileInfo, error) {
 		}
 	}
 	return content, info, nil
+}
+
+func extractPackageName(content string) string {
+	for _, line := range splitLines(content) {
+		trimmed := trim(line)
+		if hasPrefix(trimmed, "package ") {
+			return trimmed[8:]
+		}
+	}
+	return ""
+}
+
+func splitLines(s string) []string {
+	var lines []string
+	start := 0
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\n' {
+			lines = append(lines, s[start:i])
+			start = i + 1
+		}
+	}
+	if start < len(s) {
+		lines = append(lines, s[start:])
+	}
+	return lines
+}
+
+func trim(s string) string {
+	start := 0
+	for start < len(s) && (s[start] == ' ' || s[start] == '\t' || s[start] == '\r') {
+		start++
+	}
+	end := len(s)
+	for end > start && (s[end-1] == ' ' || s[end-1] == '\t' || s[end-1] == '\r') {
+		end--
+	}
+	return s[start:end]
+}
+
+func hasPrefix(s, prefix string) bool {
+	return len(s) >= len(prefix) && s[:len(prefix)] == prefix
 }

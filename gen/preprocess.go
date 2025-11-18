@@ -56,23 +56,87 @@ func ChangeInputFilePackageAndSave(filePath []byte) error {
 }
 
 func RemovePreprocessFiles() error {
-	if err := os.Remove(preprocessCopyPath); err != nil {
+	if err := os.Remove(preprocessCopyPath); err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	if err := os.Remove(inputFileCopyPath); err != nil {
+	if err := os.Remove(inputFileCopyPath); err != nil && !os.IsNotExist(err) {
 		return err
 	}
+	_ = os.Remove(copyDir)
 	return nil
 }
 
-func RemovePackageDeclaration(content string) string {
+func RemovePackageAndImports(content string) string {
 	lines := strings.Split(content, "\n")
-	for i, line := range lines {
+	var result []string
+	inImportBlock := false
+	skipNext := false
+
+	for i := 0; i < len(lines); i++ {
+		line := lines[i]
 		trimmed := strings.TrimSpace(line)
+
 		if strings.HasPrefix(trimmed, "package ") {
-			lines = append(lines[:i], lines[i+1:]...)
-			break
+			skipNext = true
+			continue
+		}
+
+		if skipNext && trimmed == "" {
+			continue
+		}
+		skipNext = false
+
+		if strings.HasPrefix(trimmed, "import (") {
+			inImportBlock = true
+			continue
+		}
+
+		if strings.HasPrefix(trimmed, "import ") && !strings.Contains(trimmed, "(") {
+			continue
+		}
+
+		if inImportBlock {
+			if trimmed == ")" {
+				inImportBlock = false
+			}
+			continue
+		}
+
+		result = append(result, line)
+	}
+
+	return strings.Join(result, "\n")
+}
+
+func ExtractImports(content string) []string {
+	var imports []string
+	lines := strings.Split(content, "\n")
+	inImportBlock := false
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+
+		if strings.HasPrefix(trimmed, "import (") {
+			inImportBlock = true
+			continue
+		}
+
+		if strings.HasPrefix(trimmed, "import ") && !strings.Contains(trimmed, "(") {
+			imp := strings.TrimPrefix(trimmed, "import ")
+			imports = append(imports, imp)
+			continue
+		}
+
+		if inImportBlock {
+			if trimmed == ")" {
+				inImportBlock = false
+				continue
+			}
+			if trimmed != "" {
+				imports = append(imports, trimmed)
+			}
 		}
 	}
-	return strings.Join(lines, "\n")
+
+	return imports
 }

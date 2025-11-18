@@ -36,8 +36,8 @@ func (f *SrcFile) getCopyFromImplementation(structureName string, strType reflec
 		case reflect.Map:
 			valueType := field.Type.Elem()
 			className := field.Type.String()
+			className = regexpForPackage.ReplaceAllString(className, "")
 			if (valueType.Kind() == reflect.Ptr && valueType.Elem().Kind() == reflect.Struct) || valueType.Kind() == reflect.Struct {
-				className = regexpForPackage.ReplaceAllString(className, "")
 				switch field.Type.Key().Kind() {
 				case reflect.String:
 					template = fmt.Sprintf(mapStrCopyTemplateForPointer, field.Name, className)
