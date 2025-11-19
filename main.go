@@ -80,6 +80,10 @@ func main() {
 }
 
 func readCombinedContent(path string) ([]byte, os.FileInfo, error) {
+	if containsComma(path) {
+		return readMultipleFiles(path)
+	}
+
 	info, err := os.Stat(path)
 	if err != nil {
 		return nil, nil, err
@@ -144,6 +148,91 @@ func readCombinedContent(path string) ([]byte, os.FileInfo, error) {
 		}
 	}
 	return content, info, nil
+}
+
+func readMultipleFiles(paths string) ([]byte, os.FileInfo, error) {
+	files := splitByComma(paths)
+	if len(files) == 0 {
+		return nil, nil, os.ErrNotExist
+	}
+
+	var allImports []string
+	var packageName string
+	var bodies []string
+	importSet := make(map[string]struct{})
+	var firstInfo os.FileInfo
+
+	for i, file := range files {
+		info, err := os.Stat(file)
+		if err != nil {
+			return nil, nil, err
+		}
+		if i == 0 {
+			firstInfo = info
+		}
+
+		data, err := os.ReadFile(file)
+		if err != nil {
+			return nil, nil, err
+		}
+		fileContent := string(data)
+
+		if packageName == "" {
+			packageName = extractPackageName(fileContent)
+		}
+
+		imports := gen.ExtractImports(fileContent)
+		for _, imp := range imports {
+			if _, exists := importSet[imp]; !exists {
+				importSet[imp] = struct{}{}
+				allImports = append(allImports, imp)
+			}
+		}
+
+		body := gen.RemovePackageAndImports(fileContent)
+		bodies = append(bodies, body)
+	}
+
+	var result string
+	result += "package " + packageName + "\n\n"
+	if len(allImports) > 0 {
+		result += "import (\n"
+		for _, imp := range allImports {
+			result += "\t" + imp + "\n"
+		}
+		result += ")\n"
+	}
+	for _, body := range bodies {
+		result += body
+	}
+
+	return []byte(result), firstInfo, nil
+}
+
+func splitByComma(s string) []string {
+	var result []string
+	start := 0
+	for i := 0; i < len(s); i++ {
+		if s[i] == ',' {
+			if i > start {
+				result = append(result, trim(s[start:i]))
+			}
+			start = i + 1
+		}
+	}
+	if start < len(s) {
+		result = append(result, trim(s[start:]))
+	}
+	return result
+}
+
+func containsComma(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] == ',' {
+			return true
+		}
+	}
+	return false
 }
 
 func extractPackageName(content string) string {
