@@ -1,8 +1,8 @@
 DST ?= test/
 SRC ?= /tmp/input.go
 
-runWithCopyFeaturesFlagAndRequiredFields: preprocessing
-	go run main.go -copyFunctionsFeature -requiredFields=$(REQ_FIELDS_CONFIG) -- $(SRC) $(DST)
+runWithAllFlags: preprocessing
+	go run main.go -copyFunctionsFeature -requiredFields=$(REQ_FIELDS_CONFIG) -rawStringFields=$(RAW_STRING_FIELDS_CONFIG) -- $(SRC) $(DST)
 	$(GOPATH)/bin/qtc -dir=$(DST)
 
 runWithCopyFeaturesFlag: preprocessing
@@ -15,6 +15,10 @@ runWithBoolToIntFlag: preprocessing
 
 runWithFlags: preprocessing
 	go run main.go -boolToInt -copyFunctionsFeature -requiredFields=$(REQ_FIELDS_CONFIG) -- $(SRC) $(DST)
+	$(GOPATH)/bin/qtc -dir=$(DST)
+
+runWithRawStringFields: preprocessing
+	go run main.go -rawStringFields=$(RAW_STRING_FIELDS_CONFIG) -- $(SRC) $(DST)
 	$(GOPATH)/bin/qtc -dir=$(DST)
 
 run: preprocessing
