@@ -13,12 +13,16 @@ import (
 )
 
 var (
-	boolToInt            = flag.Bool("boolToInt", false, "bool to int generation")
-	requiredFieldsConfig = flag.String("requiredFields", "", "path to JSON config with required fields (used during code generation)")
+	boolToInt             = flag.Bool("boolToInt", false, "bool to int generation")
+	requiredFieldsConfig  = flag.String("requiredFields", "", "path to JSON config with required fields (used during code generation)")
+	rawStringFieldsConfig = flag.String("rawStringFields", "", "path to JSON config with raw string fields (no escaping, only quotes)")
 )
 
 // Required fields are always output in JSON without empty value checks.
 var requiredFieldsRegistry = make(map[string]map[string]struct{})
+
+// Raw string fields are output with quotes but without escaping.
+var rawStringFieldsRegistry = make(map[string]map[string]struct{})
 
 // LoadRequiredFieldsConfig loads required fields configuration from JSON file.
 // This is used during code generation to determine which fields should skip empty checks.
@@ -54,9 +58,49 @@ func LoadRequiredFieldsConfig(filePath string) error {
 	return nil
 }
 
+// LoadRawStringFieldsConfig loads raw string fields configuration from JSON file.
+// Raw string fields are output with quotes but without JSON escaping (for pre-formatted JSON strings).
+//
+// JSON format: {"ClassName.FieldName": true, ...}
+//
+// Example config.json:
+//
+//	{
+//	  "BidResponse_SeatBid_Bid_Adm": ["Adm"]
+//	}
+func LoadRawStringFieldsConfig(filePath string) error {
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to read raw string fields config: %w", err)
+	}
+
+	var config map[string][]string
+	if err := json.Unmarshal(data, &config); err != nil {
+		return fmt.Errorf("failed to parse raw string fields config: %w", err)
+	}
+
+	for className, fields := range config {
+		if rawStringFieldsRegistry[className] == nil {
+			rawStringFieldsRegistry[className] = make(map[string]struct{})
+		}
+		for _, field := range fields {
+			rawStringFieldsRegistry[className][field] = struct{}{}
+		}
+	}
+
+	return nil
+}
+
 func LoadRequiredFieldsIfConfigured() error {
 	if requiredFieldsConfig != nil && *requiredFieldsConfig != "" {
 		return LoadRequiredFieldsConfig(*requiredFieldsConfig)
+	}
+	return nil
+}
+
+func LoadRawStringFieldsIfConfigured() error {
+	if rawStringFieldsConfig != nil && *rawStringFieldsConfig != "" {
+		return LoadRawStringFieldsConfig(*rawStringFieldsConfig)
 	}
 	return nil
 }
@@ -65,6 +109,14 @@ func isRequiredField(className string, field reflect.StructField) bool {
 	if classFields, ok := requiredFieldsRegistry[className]; ok {
 		_, isRequired := classFields[field.Name]
 		return isRequired
+	}
+	return false
+}
+
+func isRawStringField(className string, field reflect.StructField) bool {
+	if classFields, ok := rawStringFieldsRegistry[className]; ok {
+		_, isRaw := classFields[field.Name]
+		return isRaw
 	}
 	return false
 }
@@ -201,7 +253,7 @@ func getStructureJSON(className string, f *SrcFile) (string, error) {
 			continue
 		}
 
-		fieldTemplate, err := generateFieldTemplate(field.Type, field, f, jsonName)
+		fieldTemplate, err := generateFieldTemplate(field.Type, field, f, jsonName, className)
 		if err != nil {
 			return "", fmt.Errorf("error generating template for field %s: %w", field.Name, err)
 		}
@@ -225,7 +277,7 @@ func getImplementatorJSON(className string, f *SrcFile) (string, error) {
 			continue
 		}
 
-		fieldTemplate, err := generateFieldTemplateForImplementator(field.Type, field, f, jsonName)
+		fieldTemplate, err := generateFieldTemplateForImplementator(field.Type, field, f, jsonName, className)
 		if err != nil {
 			return "", fmt.Errorf("error generating template for field %s: %w", field.Name, err)
 		}
@@ -235,9 +287,9 @@ func getImplementatorJSON(className string, f *SrcFile) (string, error) {
 	return result.String(), nil
 }
 
-func generateFieldTemplate(typ reflect.Type, field reflect.StructField, f *SrcFile, jsonName string) (string, error) {
+func generateFieldTemplate(typ reflect.Type, field reflect.StructField, f *SrcFile, jsonName string, className string) (string, error) {
 	fieldName := formatFieldName(typ, field.Name)
-	template, err := generateInnerFieldTemplate(typ, fieldName, f)
+	template, err := generateInnerFieldTemplate(typ, fieldName, f, className, field)
 	if err != nil {
 		return "", err
 	}
@@ -245,9 +297,9 @@ func generateFieldTemplate(typ reflect.Type, field reflect.StructField, f *SrcFi
 	return wrappedTemplate, nil
 }
 
-func generateFieldTemplateForImplementator(typ reflect.Type, field reflect.StructField, f *SrcFile, jsonName string) (string, error) {
+func generateFieldTemplateForImplementator(typ reflect.Type, field reflect.StructField, f *SrcFile, jsonName string, className string) (string, error) {
 	fieldName := formatFieldName(typ, field.Name)
-	template, err := generateInnerFieldTemplate(typ, fieldName, f)
+	template, err := generateInnerFieldTemplate(typ, fieldName, f, className, field)
 	if err != nil {
 		return "", err
 	}
@@ -298,7 +350,7 @@ func formatTemplateForImplementator(jsonName, template string) string {
 	)
 }
 
-func generateInnerFieldTemplate(typ reflect.Type, fieldName string, f *SrcFile) (string, error) {
+func generateInnerFieldTemplate(typ reflect.Type, fieldName string, f *SrcFile, className string, field reflect.StructField) (string, error) {
 	if typ.Kind() == reflect.Interface {
 		var bb bytes.Buffer
 		implementators := f.findInterfaceImplementators(typ)
@@ -320,6 +372,9 @@ func generateInnerFieldTemplate(typ reflect.Type, fieldName string, f *SrcFile) 
 		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 		return replaceTemplate(intQTPLFormatInnerTemplate, fieldName), nil
 	case reflect.String:
+		if isRawStringField(className, field) {
+			return replaceTemplate(rawStringQTPLFormatInnerTemplate, fieldName), nil
+		}
 		return replaceTemplate(stringQTPLFormatInnerTemplate, fieldName), nil
 	case reflect.Bool:
 		if *boolToInt {
@@ -329,13 +384,13 @@ func generateInnerFieldTemplate(typ reflect.Type, fieldName string, f *SrcFile) 
 	case reflect.Float32, reflect.Float64:
 		return replaceTemplate(floatQTPLFormatInnerTemplate, fieldName), nil
 	case reflect.Slice, reflect.Array:
-		return generateSliceTemplate(typ, fieldName, f)
+		return generateSliceTemplate(typ, fieldName, f, className, field)
 	case reflect.Struct:
 		return generateStructTemplate(typ, fieldName)
 	case reflect.Ptr:
-		return generatePointerTemplate(typ, fieldName, f)
+		return generatePointerTemplate(typ, fieldName, f, className, field)
 	case reflect.Map:
-		return generateMapTemplate(typ, fieldName, f)
+		return generateMapTemplate(typ, fieldName, f, className, field)
 	default:
 		return "", fmt.Errorf("unsupported type: %v", typ.Kind())
 	}
@@ -345,14 +400,16 @@ func replaceTemplate(template, fieldName string) string {
 	return strings.ReplaceAll(template, "{fieldName}", fieldName)
 }
 
-func generateSliceTemplate(typ reflect.Type, fieldName string, f *SrcFile) (string, error) {
+var emptyField = reflect.StructField{}
+
+func generateSliceTemplate(typ reflect.Type, fieldName string, f *SrcFile, className string, field reflect.StructField) (string, error) {
 	elemType := typ.Elem()
 	var err error
 	var nestedTemplate string
 	if elemType.Kind() == reflect.Struct {
-		nestedTemplate, err = generateInnerFieldTemplate(elemType, "&v", f)
+		nestedTemplate, err = generateInnerFieldTemplate(elemType, "&v", f, "", emptyField)
 	} else {
-		nestedTemplate, err = generateInnerFieldTemplate(elemType, "v", f)
+		nestedTemplate, err = generateInnerFieldTemplate(elemType, "v", f, "", emptyField)
 	}
 
 	if err != nil {
@@ -376,23 +433,23 @@ func generateStructTemplate(typ reflect.Type, fieldName string) (string, error) 
 	return replaceTemplate(structQTPLFormatInnerTemplate, fieldName), nil
 }
 
-func generatePointerTemplate(typ reflect.Type, fieldName string, f *SrcFile) (string, error) {
+func generatePointerTemplate(typ reflect.Type, fieldName string, f *SrcFile, className string, field reflect.StructField) (string, error) {
 	elemType := typ.Elem()
-	nestedTemplate, err := generateInnerFieldTemplate(elemType, fieldName, f)
+	nestedTemplate, err := generateInnerFieldTemplate(elemType, fieldName, f, className, field)
 	if err != nil {
 		return "", err
 	}
 	return strings.ReplaceAll(pointerQTPLFormatInnerTemplate, "{nestedTemplate}", nestedTemplate), nil
 }
 
-func generateMapTemplate(typ reflect.Type, fieldName string, f *SrcFile) (string, error) {
+func generateMapTemplate(typ reflect.Type, fieldName string, f *SrcFile, className string, field reflect.StructField) (string, error) {
 
 	var err error
 	var keyTemplate string
 	if typ.Key().Kind() == reflect.Struct {
-		keyTemplate, err = generateInnerFieldTemplate(typ.Key(), "&k", f)
+		keyTemplate, err = generateInnerFieldTemplate(typ.Key(), "&k", f, "", emptyField)
 	} else {
-		keyTemplate, err = generateInnerFieldTemplate(typ.Key(), "k", f)
+		keyTemplate, err = generateInnerFieldTemplate(typ.Key(), "k", f, "", emptyField)
 	}
 	if err != nil {
 		return "", err
@@ -404,9 +461,9 @@ func generateMapTemplate(typ reflect.Type, fieldName string, f *SrcFile) (string
 
 	var valueTemplate string
 	if typ.Elem().Kind() == reflect.Struct {
-		valueTemplate, err = generateInnerFieldTemplate(typ.Elem(), "&v", f)
+		valueTemplate, err = generateInnerFieldTemplate(typ.Elem(), "&v", f, "", emptyField)
 	} else {
-		valueTemplate, err = generateInnerFieldTemplate(typ.Elem(), "v", f)
+		valueTemplate, err = generateInnerFieldTemplate(typ.Elem(), "v", f, "", emptyField)
 	}
 	if err != nil {
 		return "", err
@@ -422,7 +479,8 @@ func generateMapTemplate(typ reflect.Type, fieldName string, f *SrcFile) (string
 
 var intQTPLFormatInnerTemplate = `{%d= int({fieldName}) %}`
 
-var stringQTPLFormatInnerTemplate = `{%s= {fieldName} %}`
+var stringQTPLFormatInnerTemplate = `{%q= {fieldName} %}`
+var rawStringQTPLFormatInnerTemplate = `"{%s= {fieldName} %}"`
 
 var boolQTPLFormatInnerTemplate = `{% if {fieldName} %} true {% else %} false {% endif %}`
 var boolToIntQTPLFormatInnerTemplate = `{% if {fieldName} %} 1 {% else %} 0 {% endif %}`

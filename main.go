@@ -25,6 +25,10 @@ func main() {
 		log.Fatalf("failed to load required fields config: %s", err)
 	}
 
+	if err := gen.LoadRawStringFieldsIfConfigured(); err != nil {
+		log.Fatalf("failed to load raw string fields config: %s", err)
+	}
+
 	b, info, err := readCombinedContent(sourcePath)
 	if err != nil {
 		log.Fatalf("failed to read source content: %s", err)
