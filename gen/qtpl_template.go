@@ -422,7 +422,7 @@ func generateMapTemplate(typ reflect.Type, fieldName string, f *SrcFile) (string
 
 var intQTPLFormatInnerTemplate = `{%d= int({fieldName}) %}`
 
-var stringQTPLFormatInnerTemplate = `{%q= {fieldName} %}`
+var stringQTPLFormatInnerTemplate = `{%s= {fieldName} %}`
 
 var boolQTPLFormatInnerTemplate = `{% if {fieldName} %} true {% else %} false {% endif %}`
 var boolToIntQTPLFormatInnerTemplate = `{% if {fieldName} %} 1 {% else %} 0 {% endif %}`
