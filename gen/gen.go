@@ -58,6 +58,16 @@ func (f *SrcFile) GetStructureFile() (string, error) {
 				body.WriteString(generateCopyFunction(className, string(copyFunction)))
 			}
 
+			// Генерируем Filter() метод
+			filterFunction, err := f.getFilterImplementation(className, strType)
+			if err != nil {
+				return "", err
+			}
+			if f.isImplementator(className) {
+				body.WriteString(generateFilterFunctionForImplementator(className, string(filterFunction)))
+			} else {
+				body.WriteString(generateFilterFunction(className, string(filterFunction)))
+			}
 		}
 		body.WriteString(generateMarshalJsonFile(className))
 		for i := 0; i < strType.NumField(); i++ {
@@ -204,6 +214,58 @@ type NoOpFieldRedefiner struct {}
 
 func (m *NoOpFieldRedefiner) Redefine(typ string, path, field []byte, src unsafe.Pointer, dst unsafe.Pointer) bool {
 	return false
+}
+
+// FieldModifier defines in-place field modification operations
+type FieldModifier interface {
+	// Keep returns true if field should be kept, false if it should be zeroed
+	Keep(path, field []byte) bool
+}
+
+// ZeroValue sets field to zero value based on its type
+func ZeroValue(ptr unsafe.Pointer, typ reflect.Type) {
+	if typ == nil {
+		return
+	}
+	switch typ.Kind() {
+	case reflect.Ptr, reflect.Interface, reflect.Slice, reflect.Map:
+		*(*unsafe.Pointer)(ptr) = nil
+	case reflect.String:
+		*(*string)(ptr) = ""
+	case reflect.Bool:
+		*(*bool)(ptr) = false
+	case reflect.Int32:
+		*(*int32)(ptr) = 0
+	case reflect.Int64:
+		*(*int64)(ptr) = 0
+	case reflect.Float64:
+		*(*float64)(ptr) = 0
+	case reflect.Struct:
+		zero := reflect.Zero(typ).Interface()
+		reflect.NewAt(typ, ptr).Elem().Set(reflect.ValueOf(zero))
+	}
+}
+
+// filterStructpbStruct filters structpb.Struct fields in-place
+func filterStructpbStruct(s *structpb.Struct, modifier FieldModifier, basePath []byte) {
+	if s == nil || s.Fields == nil {
+		return
+	}
+	for key := range s.Fields {
+		keyBytes := []byte(key)
+		if !modifier.Keep(basePath, keyBytes) {
+			delete(s.Fields, key)
+			continue
+		}
+		// Recursive filtering for nested structs
+		if val := s.Fields[key]; val != nil {
+			if nested := val.GetStructValue(); nested != nil {
+				nestedPath := append(basePath, []byte(".")...)
+				nestedPath = append(nestedPath, keyBytes...)
+				filterStructpbStruct(nested, modifier, nestedPath)
+			}
+		}
+	}
 }
 
 var capSliceBytePool = flag.Uint("capSliceBytePool", 1024, "Capacity of slice byte for pool")

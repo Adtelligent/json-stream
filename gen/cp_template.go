@@ -133,14 +133,31 @@ func indentLines(s, prefix string) string {
 func generateCopyFunction(className, copyFunction string) string {
 	result := strings.ReplaceAll(copyFromTemplate, "{className}", className)
 	result = strings.ReplaceAll(result, "{copyFunction}", copyFunction)
+	result = strings.ReplaceAll(result, "{copyFromBody}", buildCopyFromBody(className, copyFunction, false))
 	return result
 }
 
 func generateCopyFunctionForImplementator(className, copyFunction string) string {
-	suppressUnused := "\t_ = redefiner\n\t_ = wildcardPath\n"
 	result := strings.ReplaceAll(copyFromTemplate, "{className}", className)
-	result = strings.ReplaceAll(result, "{copyFunction}", suppressUnused+copyFunction)
+	result = strings.ReplaceAll(result, "{copyFunction}", copyFunction)
+	result = strings.ReplaceAll(result, "{copyFromBody}", buildCopyFromBody(className, copyFunction, true))
 	return result
+}
+
+func buildCopyFromBody(className, copyFunction string, isImplementator bool) string {
+	if strings.TrimSpace(copyFunction) == "" && !isImplementator {
+		return ""
+	}
+	var sb strings.Builder
+	sb.WriteString("\tinitPath := getSliceByte()\n")
+	sb.WriteString("\tdefer func() {\n\t\tputSliceByte(initPath)\n\t}()\n")
+	sb.WriteString(fmt.Sprintf("\twildcardPath := append(initPath, []byte(\"%s\")...)\n", className))
+	sb.WriteString("\tredefiner := DefaultFieldsRedefiner\n")
+	if isImplementator {
+		sb.WriteString("\t_ = redefiner\n\t_ = wildcardPath\n")
+	}
+	sb.WriteString(copyFunction)
+	return sb.String()
 }
 
 func generateMarshalJsonFile(className string) string {
@@ -152,6 +169,84 @@ func generateMarshalJsonFile(className string) string {
 
 func generateQtcName(className string) string {
 	return strings.ToLower(className[:1]) + className[1:] + "JSON"
+}
+
+func (f *SrcFile) getFilterImplementation(structureName string, strType reflect.Type) ([]byte, error) {
+	var result bytes.Buffer
+	var template string
+	isImplementator := f.isImplementator(structureName)
+
+	for i := 0; i < strType.NumField(); i++ {
+		field := strType.Field(i)
+		if !field.IsExported() {
+			continue
+		}
+		switch field.Type.Kind() {
+		case reflect.Chan, reflect.Func, reflect.UnsafePointer:
+			continue
+		case reflect.Struct:
+			template = fmt.Sprintf("\tobj.%[1]s.filter(modifier, append(path, []byte(\".%[1]s\")...))\n", field.Name)
+		case reflect.Ptr:
+			if field.Type.Elem().String() == "structpb.Struct" {
+				template = fmt.Sprintf(filterStructpbTemplate, field.Name)
+			} else if field.Type.Elem().String() == "structpb.Value" {
+				template = fmt.Sprintf(filterSimpleTemplate, field.Name)
+			} else if field.Type.Elem().Kind() == reflect.Struct {
+				template = fmt.Sprintf(filterPtrStructTemplate, field.Name)
+			} else {
+				template = fmt.Sprintf(filterSimpleTemplate, field.Name)
+			}
+		case reflect.Slice:
+			elemType := field.Type.Elem()
+			if (elemType.Kind() == reflect.Ptr && elemType.Elem().Kind() == reflect.Struct) || elemType.Kind() == reflect.Struct {
+				template = fmt.Sprintf(filterSliceStructTemplate, field.Name)
+			} else {
+				template = fmt.Sprintf(filterSimpleTemplate, field.Name)
+			}
+		case reflect.Map:
+			valueType := field.Type.Elem()
+			if (valueType.Kind() == reflect.Ptr && valueType.Elem().Kind() == reflect.Struct) || valueType.Kind() == reflect.Struct {
+				template = fmt.Sprintf(filterMapStructTemplate, field.Name)
+			} else {
+				template = fmt.Sprintf(filterSimpleTemplate, field.Name)
+			}
+		case reflect.Interface:
+			template = fmt.Sprintf(filterSimpleTemplate, field.Name)
+		default:
+			template = fmt.Sprintf(filterSimpleTemplate, field.Name)
+		}
+
+		if isImplementator {
+			result.WriteString(template)
+		} else {
+			result.WriteString(wrapFilterTemplateWithModifier(structureName, template, field))
+		}
+	}
+	return result.Bytes(), nil
+}
+
+func wrapFilterTemplateWithModifier(className string, template string, field reflect.StructField) string {
+	fieldName := field.Name
+	indentedTemplate := indentLines(template, "\t")
+
+	return fmt.Sprintf(`	if modifier.Keep(path, []byte("%[1]s")) {
+%[2]s	} else {
+		ZeroValue(unsafe.Pointer(&obj.%[1]s), GetType("%[3]s.%[1]s"))
+	}
+`, fieldName, indentedTemplate, className)
+}
+
+func generateFilterFunction(className, filterFunction string) string {
+	result := strings.ReplaceAll(filterTemplate, "{className}", className)
+	result = strings.ReplaceAll(result, "{filterFunction}", filterFunction)
+	return result
+}
+
+func generateFilterFunctionForImplementator(className, filterFunction string) string {
+	suppressUnused := "\t_ = modifier\n\t_ = path\n"
+	result := strings.ReplaceAll(filterTemplate, "{className}", className)
+	result = strings.ReplaceAll(result, "{filterFunction}", suppressUnused+filterFunction)
+	return result
 }
 
 func generateGetValueUnsafePointerMethod(className string, strType reflect.Type) string {
@@ -308,14 +403,7 @@ func (src *{className}) Copy() *{className} {
 }
 
 func (dst *{className}) CopyFrom(src *{className}) {
-	initPath := getSliceByte()
-	defer func() {
-		putSliceByte(initPath)
-	}()
-	wildcardPath := append(initPath, []byte("{className}")...)
-	redefiner := DefaultFieldsRedefiner
-{copyFunction}
-}
+{copyFromBody}}
 
 func (src *{className}) CopyWithRedefiner(redefiner FieldRedefiner) *{className} {
 	initPath := getSliceByte()
@@ -510,4 +598,43 @@ func (dst *{className}) MarshalJSON() ([]byte, error) {
 	write{qtcName}(&bb, dst, FieldsMasksZero)
 	return bb.Bytes(), nil
 }
+`
+
+var filterTemplate = `
+func (obj *{className}) filter(modifier FieldModifier, path []byte) {
+{filterFunction}
+}
+
+func (obj *{className}) Filter(modifier FieldModifier) {
+	initPath := getSliceByte()
+	defer putSliceByte(initPath)
+	obj.filter(modifier, append(initPath, []byte("{className}")...))
+}
+`
+
+var filterSimpleTemplate = "\t// %[1]s - simple field\n"
+
+var filterStructpbTemplate = `	if obj.%[1]s != nil {
+		filterStructpbStruct(obj.%[1]s, modifier, append(path, []byte(".%[1]s")...))
+	}
+`
+
+var filterPtrStructTemplate = `	if obj.%[1]s != nil {
+		obj.%[1]s.filter(modifier, append(path, []byte(".%[1]s")...))
+	}
+`
+
+var filterSliceStructTemplate = `	for i := range obj.%[1]s {
+		if obj.%[1]s[i] != nil {
+			obj.%[1]s[i].filter(modifier, append(path, []byte(".%[1]s")...))
+		}
+	}
+`
+
+var filterMapStructTemplate = `	for k, v := range obj.%[1]s {
+		if v != nil {
+			v.filter(modifier, append(path, []byte(".%[1]s")...))
+			obj.%[1]s[k] = v
+		}
+	}
 `
