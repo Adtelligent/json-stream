@@ -1,0 +1,124 @@
+syntax = "proto3";
+
+import "google/protobuf/any.proto";
+
+option java_outer_classname = "OpenRtb";
+option go_package = "gitlab.adtelligent.com/common/openrtb";
+
+package openrtb;
+
+
+message RuleSet {
+  map<string, Rule> rules = 2;
+  repeated Condition andGroup = 3;
+  repeated Condition orGroup = 4;
+}
+
+message Rule {
+  oneof event_oneof {
+    EventDrop eventDrop = 2;
+    EventPass eventPass = 3;
+    EventOverride eventOverride = 4;
+  }
+  message EventDrop {
+    // Intended to drop or nullify a field.
+  }
+  message EventPass {
+    // Force inclusion of the field even if not present in a mask.
+  }
+  message EventOverride {
+    oneof value_oneof {
+      string stringValue = 1;
+      double doubleValue = 2;
+      int64 numberValue = 3;
+      bool boolValue = 4;
+      google.protobuf.Any structValue = 5;
+      StringListValue stringListValue = 6;
+      Int32ListValue int32ListValue = 7;
+    }
+  }
+}
+
+message StringListValue {
+  repeated string values = 1;
+}
+
+message Int32ListValue {
+  repeated int32 values = 1;
+}
+
+message Condition {
+  string field = 1; // path + field
+
+  oneof condition_oneof {
+    NoDataCondition NoData = 2;
+    NumberCondition Number = 4;
+    DoubleCondition Double = 5;
+    BoolCondition Bool = 6;
+    StringListCondition StringList = 7;
+    ExternalListCondition ExternalList = 8;
+    RangeIpListCondition RangeIpList = 9;
+  }
+
+
+  message NoDataCondition {}
+
+  message StringListCondition {
+    Cond cond = 1;
+    repeated string values = 2;
+    enum Cond {
+      In = 0;
+      NotIn = 1;
+    }
+  }
+
+  message RangeIpListCondition {
+    Cond cond = 1;
+    repeated string values = 2;
+    enum Cond {
+      In = 0;
+      NotIn = 1;
+    }
+  }
+
+  message ExternalListCondition {
+    Cond cond = 1;
+    repeated int64 values = 2;
+    enum Cond {
+      In = 0;
+      NotIn = 1;
+    }
+  }
+
+  message NumberCondition {
+    Cond cond = 1;
+    int64 value = 2;
+
+    enum Cond {
+      Greater = 0;
+      Less = 1;
+      Equal = 2;
+      GreaterEqual = 3;
+      LessEqual = 4;
+      NotEqual = 5;
+    }
+  }
+
+  message BoolCondition {
+    bool value = 1;
+  }
+
+  message DoubleCondition {
+    Cond cond = 1;
+    double value = 2;
+
+    enum Cond {
+      Greater = 0;
+      Less = 1;
+      Equal = 2;
+      GreaterEqual = 3;
+      LessEqual = 4;
+      NotEqual = 5;
+    }
+  }
+}

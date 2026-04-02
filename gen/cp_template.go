@@ -471,7 +471,7 @@ var sliceStructGetValueTemplate = `		if len(parts) < 3 {
 var sliceGetValueTemplate = `		if len(parts) < 3 {
 			return unsafe.Pointer(&obj.%[1]s), GetType("{className}.%[1]s"), nil
 		}
-		index, err := strconv.Atoi(unsafe.String(unsafe.SliceData(parts[1]), len(parts[1])))
+		index, err := strconv.Atoi(unsafe.String(unsafe.SliceData(parts[2]), len(parts[2])))
 		if err != nil || index < 0 || index >= len(obj.%[1]s) {
 			return nil, nil, fmt.Errorf("invalid index for slice %[1]s: %%d", index)
 		}
