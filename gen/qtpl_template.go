@@ -121,21 +121,6 @@ func isRawStringField(className string, field reflect.StructField) bool {
 	return false
 }
 
-func zeroValueLiteral(typ reflect.Type) string {
-	switch typ.Kind() {
-	case reflect.Bool:
-		return "false"
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
-		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
-		reflect.Float32, reflect.Float64:
-		return "0"
-	case reflect.String:
-		return `""`
-	default:
-		return "null"
-	}
-}
-
 func GetQTPLFile(className string, f *SrcFile) (string, error) {
 	res, err := getWriteJSON(className, f)
 	if err != nil {
@@ -202,7 +187,7 @@ func wrapTemplateWithCondition(template string, field reflect.StructField, class
 	fieldName := field.Name
 
 	if isRequiredField(className, field) {
-		return fmt.Sprintf("%s", template)
+		return template
 	}
 
 	var condition string
@@ -460,6 +445,24 @@ func generatePointerTemplate(typ reflect.Type, fieldName string, f *SrcFile, cla
 		return fmt.Sprintf("{%% if %s != nil %%}%s{%% else %%}%s{%% endif %%}", ptrFieldName, result, zeroValueLiteral(elemType)), nil
 	}
 	return result, nil
+}
+
+func zeroValueLiteral(typ reflect.Type) string {
+	switch typ.Kind() {
+	case reflect.Bool:
+		if *boolToInt {
+			return "0"
+		}
+		return "false"
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
+		reflect.Float32, reflect.Float64:
+		return "0"
+	case reflect.String:
+		return `""`
+	default:
+		return "null"
+	}
 }
 
 func generateMapTemplate(typ reflect.Type, fieldName string, f *SrcFile) (string, error) {
