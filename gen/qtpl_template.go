@@ -121,6 +121,21 @@ func isRawStringField(className string, field reflect.StructField) bool {
 	return false
 }
 
+func zeroValueLiteral(typ reflect.Type) string {
+	switch typ.Kind() {
+	case reflect.Bool:
+		return "false"
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
+		reflect.Float32, reflect.Float64:
+		return "0"
+	case reflect.String:
+		return `""`
+	default:
+		return "null"
+	}
+}
+
 func GetQTPLFile(className string, f *SrcFile) (string, error) {
 	res, err := getWriteJSON(className, f)
 	if err != nil {
@@ -384,13 +399,13 @@ func generateInnerFieldTemplate(typ reflect.Type, fieldName string, f *SrcFile, 
 	case reflect.Float32, reflect.Float64:
 		return replaceTemplate(floatQTPLFormatInnerTemplate, fieldName), nil
 	case reflect.Slice, reflect.Array:
-		return generateSliceTemplate(typ, fieldName, f, className, field)
+		return generateSliceTemplate(typ, fieldName, f)
 	case reflect.Struct:
 		return generateStructTemplate(typ, fieldName)
 	case reflect.Ptr:
 		return generatePointerTemplate(typ, fieldName, f, className, field)
 	case reflect.Map:
-		return generateMapTemplate(typ, fieldName, f, className, field)
+		return generateMapTemplate(typ, fieldName, f)
 	default:
 		return "", fmt.Errorf("unsupported type: %v", typ.Kind())
 	}
@@ -402,7 +417,7 @@ func replaceTemplate(template, fieldName string) string {
 
 var emptyField = reflect.StructField{}
 
-func generateSliceTemplate(typ reflect.Type, fieldName string, f *SrcFile, className string, field reflect.StructField) (string, error) {
+func generateSliceTemplate(typ reflect.Type, fieldName string, f *SrcFile) (string, error) {
 	elemType := typ.Elem()
 	var err error
 	var nestedTemplate string
@@ -439,10 +454,15 @@ func generatePointerTemplate(typ reflect.Type, fieldName string, f *SrcFile, cla
 	if err != nil {
 		return "", err
 	}
-	return strings.ReplaceAll(pointerQTPLFormatInnerTemplate, "{nestedTemplate}", nestedTemplate), nil
+	result := strings.ReplaceAll(pointerQTPLFormatInnerTemplate, "{nestedTemplate}", nestedTemplate)
+	if isRequiredField(className, field) {
+		ptrFieldName := strings.TrimPrefix(fieldName, "*")
+		return fmt.Sprintf("{%% if %s != nil %%}%s{%% else %%}%s{%% endif %%}", ptrFieldName, result, zeroValueLiteral(elemType)), nil
+	}
+	return result, nil
 }
 
-func generateMapTemplate(typ reflect.Type, fieldName string, f *SrcFile, className string, field reflect.StructField) (string, error) {
+func generateMapTemplate(typ reflect.Type, fieldName string, f *SrcFile) (string, error) {
 
 	var err error
 	var keyTemplate string
