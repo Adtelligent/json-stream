@@ -458,7 +458,16 @@ var sliceStructGetValueTemplate = `		if len(parts) < 3 {
 			return unsafe.Pointer(&obj.%[1]s), GetType("{className}.%[1]s"), nil
 		}
 		index, err := strconv.Atoi(unsafe.String(unsafe.SliceData(parts[2]), len(parts[2])))
-		if err != nil || index < 0 || index >= len(obj.%[1]s) {
+		if err != nil {
+			if len(obj.%[1]s) == 0 {
+				return nil, nil, fmt.Errorf("slice %[1]s is empty")
+			}
+			if obj.%[1]s[0] == nil {
+				return nil, nil, fmt.Errorf("nil element at index 0 in slice %[1]s")
+			}
+			return obj.%[1]s[0].getValueUnsafePointer(parts[1:])
+		}
+		if index < 0 || index >= len(obj.%[1]s) {
 			return nil, nil, fmt.Errorf("invalid index for slice %[1]s: %%d", index)
 		}
 		if obj.%[1]s[index] == nil {
@@ -472,7 +481,13 @@ var sliceGetValueTemplate = `		if len(parts) < 3 {
 			return unsafe.Pointer(&obj.%[1]s), GetType("{className}.%[1]s"), nil
 		}
 		index, err := strconv.Atoi(unsafe.String(unsafe.SliceData(parts[2]), len(parts[2])))
-		if err != nil || index < 0 || index >= len(obj.%[1]s) {
+		if err != nil {
+			if len(obj.%[1]s) == 0 {
+				return nil, nil, fmt.Errorf("slice %[1]s is empty")
+			}
+			return unsafe.Pointer(&obj.%[1]s[0]), GetType("{className}.%[1]s"), nil
+		}
+		if index < 0 || index >= len(obj.%[1]s) {
 			return nil, nil, fmt.Errorf("invalid index for slice %[1]s: %%d", index)
 		}
 		if len(parts) > 3 {
