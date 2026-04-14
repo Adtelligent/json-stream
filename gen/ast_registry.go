@@ -11,36 +11,28 @@ import (
 
 type FieldInfo struct {
 	Name     string
-	TypeStr  string // as written in source: "string", "*BidRequest", "[]int32", "map[string]*Foo"
+	TypeStr  string
 	Tag      reflect.StructTag
-	Kind     reflect.Kind // derived from TypeStr
+	Kind     reflect.Kind
 	IsPtr    bool
 	IsSlice  bool
 	IsMap    bool
-	MapKey   string // for map types: key type string e.g. "string", "int32"
-	MapElem  string // for map types: element type string e.g. "*Foo", "string"
-	ElemType string // for ptr/slice: element type name without leading * or []
+	MapKey   string
+	MapElem  string
+	ElemType string
 }
 
-// StructInfo replaces reflect.Type for struct inspection.
 type StructInfo struct {
 	Name   string
 	Fields []FieldInfo
 }
 
-// Registry holds all parsed structs and their interface implementors.
 type Registry struct {
-	Structs map[string]*StructInfo
-	// Implementors maps interface type name → list of struct names that implement it.
-	// Detected by finding structs with a method named exactly like the interface type
-	// (protobuf oneof: struct BidRequest_Site_ has method isBidRequest_DistributionchannelOneof()).
+	Structs      map[string]*StructInfo
 	Implementors map[string][]string
-	// NamedTypes maps named type aliases (e.g. "ContextType") to their underlying reflect.Kind.
-	// Used to resolve non-struct named types that appear as bare names in field declarations.
-	NamedTypes map[string]reflect.Kind
+	NamedTypes   map[string]reflect.Kind
 }
 
-// BuildRegistryFromAST parses Go source bytes and returns the populated registry.
 func BuildRegistryFromAST(src []byte) (*Registry, error) {
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, "", src, 0)
@@ -54,9 +46,6 @@ func BuildRegistryFromAST(src []byte) (*Registry, error) {
 		NamedTypes:   make(map[string]reflect.Kind),
 	}
 
-	// Pass 1: collect all exported type definitions.
-	// Sub-pass 1a: collect named non-struct types (e.g. "type ContextType int32").
-	// Sub-pass 1b: collect struct definitions.
 	for _, decl := range f.Decls {
 		genDecl, ok := decl.(*ast.GenDecl)
 		if !ok {
@@ -68,9 +57,8 @@ func BuildRegistryFromAST(src []byte) (*Registry, error) {
 				continue
 			}
 			if _, isStruct := typeSpec.Type.(*ast.StructType); isStruct {
-				continue // handled below
+				continue
 			}
-			// Named non-struct type: record its underlying kind.
 			underlyingStr := typeExprToString(typeSpec.Type)
 			kind := deriveKindFromName(underlyingStr)
 			if kind != reflect.Invalid {
@@ -96,7 +84,7 @@ func BuildRegistryFromAST(src []byte) (*Registry, error) {
 			si := &StructInfo{Name: typeSpec.Name.Name}
 			for _, field := range structType.Fields.List {
 				if len(field.Names) == 0 {
-					continue // embedded/anonymous field — skip
+					continue
 				}
 				name := field.Names[0].Name
 				if !ast.IsExported(name) {
@@ -114,10 +102,7 @@ func BuildRegistryFromAST(src []byte) (*Registry, error) {
 		}
 	}
 
-	// Pass 2: collect method receivers to find interface implementors.
-	// In protobuf oneof, a struct like BidRequest_Site_ has method isBidRequest_DistributionchannelOneof().
-	// The method name equals the interface type name used in oneof fields.
-	receiverMethods := make(map[string]map[string]bool) // structName -> set of method names
+	receiverMethods := make(map[string]map[string]bool)
 	for _, decl := range f.Decls {
 		funcDecl, ok := decl.(*ast.FuncDecl)
 		if !ok || funcDecl.Recv == nil || len(funcDecl.Recv.List) == 0 {
@@ -142,8 +127,6 @@ func BuildRegistryFromAST(src []byte) (*Registry, error) {
 		receiverMethods[recvName][funcDecl.Name.Name] = true
 	}
 
-	// Pass 3: for each interface-typed field found in struct definitions,
-	// collect all structs that have a method named after that interface type.
 	interfaceFieldTypes := make(map[string]bool)
 	for _, si := range reg.Structs {
 		for _, fi := range si.Fields {
@@ -168,7 +151,6 @@ func BuildRegistryFromAST(src []byte) (*Registry, error) {
 	return reg, nil
 }
 
-// typeExprToString converts an AST type expression to a canonical Go type string.
 func typeExprToString(expr ast.Expr) string {
 	switch t := expr.(type) {
 	case *ast.Ident:
@@ -228,7 +210,7 @@ func deriveKindWithRegistry(typeStr string, namedTypes map[string]reflect.Kind) 
 	if strings.HasPrefix(typeStr, "map[") {
 		isMap = true
 		kind = reflect.Map
-		inner := typeStr[4:] // strip "map["
+		inner := typeStr[4:]
 		depth := 1
 		i := 0
 		for i < len(inner) && depth > 0 {
@@ -277,10 +259,7 @@ func deriveKindWithRegistry(typeStr string, namedTypes map[string]reflect.Kind) 
 	return
 }
 
-// deriveKindFromName maps a Go primitive type name to its reflect.Kind.
-// Returns reflect.Invalid for unknown/struct/interface types.
 func deriveKindFromName(name string) reflect.Kind {
-	// Strip package qualifier if present (e.g. "pkg.Type" → "Type").
 	if idx := strings.LastIndex(name, "."); idx >= 0 {
 		name = name[idx+1:]
 	}
@@ -324,8 +303,6 @@ func deriveKindFromName(name string) reflect.Kind {
 	}
 }
 
-// isStructType returns true if typeStr refers to a struct (not a primitive, slice, map, ptr, or interface).
-// Used when we need to know if a bare type name (no prefix) is a struct.
 func isStructType(typeStr string) bool {
 	if strings.HasPrefix(typeStr, "[]") ||
 		strings.HasPrefix(typeStr, "map[") ||
@@ -336,14 +313,12 @@ func isStructType(typeStr string) bool {
 	if k != reflect.Invalid {
 		return false
 	}
-	// Unexported "is*" names are interfaces.
 	if strings.HasPrefix(typeStr, "is") {
 		return false
 	}
 	return true
 }
 
-// isMapElemPtrToStruct returns true if a map element type string represents *SomeStruct.
 func isMapElemPtrToStruct(mapElem string) bool {
 	if !strings.HasPrefix(mapElem, "*") {
 		return false
@@ -352,8 +327,6 @@ func isMapElemPtrToStruct(mapElem string) bool {
 	return isStructType(inner)
 }
 
-// isStructTypeWithRegistry returns true if typeStr refers to a struct,
-// consulting namedTypes to exclude named primitive aliases like "type ContextType int32".
 func isStructTypeWithRegistry(typeStr string, namedTypes map[string]reflect.Kind) bool {
 	if strings.HasPrefix(typeStr, "[]") ||
 		strings.HasPrefix(typeStr, "map[") ||
@@ -370,7 +343,7 @@ func isStructTypeWithRegistry(typeStr string, namedTypes map[string]reflect.Kind
 			lookup = lookup[idx+1:]
 		}
 		if _, ok := namedTypes[lookup]; ok {
-			return false // it's a named primitive alias, not a struct
+			return false
 		}
 	}
 	if strings.HasPrefix(typeStr, "is") {

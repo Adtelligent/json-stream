@@ -1,80 +1,60 @@
-# Json-stream Marshaling Library
+# Json-stream Marshaling and Unmarshaling Library
 
-This library provides a fast and efficient solution for JSON marshaling in Golang through code generation and quicktemplate templates. It is particularly effective for structures with a large number of fields, ensuring optimal performance and reduced overhead compared to traditional JSON encoding approaches.
+This library provides a fast and efficient solution for JSON marshaling and unmarshaling in Golang through code generation and `quicktemplate`. It is particularly effective for structures with a large number of fields, ensuring optimal performance and reduced overhead compared to traditional JSON encoding/decoding approaches.
+
 ## Features
-- **Code generation for JSON marshaling**
-- Support for various field types, including integers, strings, booleans, floats, slices, maps, structs, and pointers
-- Custom handling for `structpb.Struct`
-- Optional preprocessing mode for advanced control
-- Ability to generate copy functions for structures with customizable field selection:
-  - The generated copy functions accept a redefiner (FieldRedefiner interface) that allows you to specify how field values should be redefined.
-- Ability to generate copy functions GetValueUnsafePointer(pathToField []byte) (unsafe.Pointer, reflect.Type, error)
-  that retrieves an unsafe pointer to the field’s value using a provided path, along with its type and an error if applicable.
-- Flag boolToInt to automatically generate conversion logic for boolean types into integers
+- **Code generation for high-performance JSON marshaling and unmarshaling.**
+- **Unmarshaling Features**:
+  - Automatic handling of interface fields, common in protobuf-generated structures (`oneof`).
+  - Custom `boolean` decoder that correctly interprets `true`, `false`, `1`, and `0`.
+  - Configuration for required fields via a JSON file.
+  - Configuration for fields to be treated as raw strings during unmarshaling.
+- **Marshaling Features**:
+  - Support for various field types, including integers, strings, booleans, floats, slices, maps, structs, and pointers.
+  - Custom handling for `structpb.Struct`.
+  - Generation of `CopyFrom` functions for structures with customizable field redefiners.
+  - Generation of `GetValueUnsafePointer` to retrieve a field's value via an unsafe pointer.
+  - `boolToInt` flag to automatically convert boolean types to integers during marshaling.
 
 ## Getting Started
 
-### Prerequisites
-- `qtc` binary from [quicktemplate](https://github.com/valyala/quicktemplate)
-
-### Running the Generator
-1. Configure the Makefile with appropriate paths:
-    - `DST`: The output directory for generated files
-    - `SRC`: The source file or directory containing Go files with structures to be marshaled. **Note:** SRC can be either a single file with structures or a directory with multiple Go files.
-
-2. Run the generator:
-The Makefile defines several targets:
-
-**Default Run**
+### 1. Installation
+Install `json-stream` and `qtc` (the quicktemplate compiler):
 ```bash
-make run
+go install github.com/Adtelligent/json-stream@latest
+go install github.com/valyala/quicktemplate/qtc@latest
 ```
-This target performs preprocessing and then runs the generator with default settings:
-   - It calls `go run main.go -- $(SRC) $(DST)`
-   - Finally, it invokes qtc to process the generated templates.
 
-**Run with Flags**
+### 2. Code Generation
+Run the `json-stream` command, providing the source file, output directory, and any configuration files.
 
 ```bash
-make runWithFlags
+json-stream \
+  -boolToInt \
+  -copyFunctionsFeature \
+  -requiredFields=path/to/required_fields.json \
+  -rawStringFields=path/to/raw_string_fields.json \
+  path/to/your_struct_file.go \
+  path/to/output/dir/
 ```
-This target enables additional functionality by passing the new flags:
-   - `-boolToInt`: Generates conversion logic for boolean values to integer.
-   - `-copyFunctionsFeature`: Generates copy functions for structures. These functions receive a limiter to determine which fields to copy.
 
-It also runs preprocessing before generating code and finally calls qtc.
+This will generate `*.gen.go` and `*.gen.qtpl` files in the specified output directory.
 
-**Preprocessing**
-
+### 3. Compile Templates
+Compile the generated `.qtpl` files using `qtc`:
 ```bash
-make preprocessing
+qtc -dir=path/to/output/dir/
 ```
-This target performs any necessary preprocessing steps:
-```makefile
-preprocessing: clear
-	go run main.go -prepocessing $(SRC) $(DST)
-```
+This will produce the final `*.gen.qtpl.go` files required by your project.
 
-**Clear**
+## Flags
+- `-boolToInt` (boolean): Enable the conversion of boolean types to integers (`1` or `0`) during **marshaling**.
+- `-copyFunctionsFeature` (boolean): Generate `CopyFrom` and `Filter` functions for structures.
+- `-requiredFields` (string): Path to a JSON file specifying required fields for **unmarshaling**.
+- `-rawStringFields` (string): Path to a JSON file specifying fields to be treated as raw strings during **unmarshaling**.
 
-```bash
-make clear
-```
-This target removes generated files:
-```makefile
-clear:
-	rm -f $(DST)*.gen.go
-	rm -f $(DST)*.gen.qtpl.go
-	rm -f $(DST)*.gen.qtpl
-```
 
-### Flags
-The generator supports the following flags:
-- `-prepocessing` (boolean): Enable preprocessing mode for additional setup before code generation.
-- `-boolToInt` (boolean): Enable the conversion of boolean types to integers in the generated code.
-- `-copyFunctionsFeature` (boolean): Generate copy functions for structures. These functions accept a limiter—an implementation of the `FieldsRedefiner` interface—that determines which fields should be copied.
-
-### Customizing Field Copying
+## Customizing Field Copying
 You can control which fields are copied by implementing the `FieldsRedefiner` interface. The default implementation is shown below:
 ```go
 var DefaultFieldsRedefiner = &NoOpFieldRedefiner{}
@@ -90,7 +70,7 @@ return false
 }
 ```
 
-### Supported Field Types
+## Supported Field Types
 The library supports JSON marshaling for the following field types:
 - **Integers**: `int`, `int8`, `int16`, `int32`, `int64`, `uint`, `uint8`, `uint16`, `uint32`, `uint64`
 - **Strings**
@@ -103,7 +83,9 @@ The library supports JSON marshaling for the following field types:
 
 Additional handling for `structpb.Struct` is included.
 
-# Benchmarks Marshaling
+## Benchmarks
+
+### Marshaling
 The benchmark was conducted using a data structure based on the [OpenRTB protocol](https://developers.google.com/authorized-buyers/rtb/downloads/openrtb-proto) from Google.
 ![benchmark.png](benchmarks/benchmark.png)
 
