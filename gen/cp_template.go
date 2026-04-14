@@ -6,23 +6,17 @@ import (
 	"reflect"
 	"regexp"
 	"strings"
-
-	"github.com/Adtelligent/json-stream/reg"
 )
 
 var regexpForPackage = regexp.MustCompile(`\b\w+\.`)
 
-func (f *SrcFile) getCopyFromImplementation(structureName string, strType reflect.Type) ([]byte, error) {
+func (f *SrcFile) getCopyFromImplementation(structureName string, si *StructInfo) ([]byte, error) {
 	var result bytes.Buffer
 	var template string
 	isImplementator := f.isImplementator(structureName)
 
-	for i := 0; i < strType.NumField(); i++ {
-		field := strType.Field(i)
-		if !field.IsExported() {
-			continue
-		}
-		switch field.Type.Kind() {
+	for _, field := range si.Fields {
+		switch field.Kind {
 		case reflect.Chan, reflect.Func, reflect.UnsafePointer:
 			continue
 		case reflect.Array:
@@ -34,14 +28,14 @@ func (f *SrcFile) getCopyFromImplementation(structureName string, strType reflec
 		case reflect.Struct:
 			template = fmt.Sprintf("\tdst.%[1]s = src.%[1]s.copy(redefiner, append(wildcardPath, []byte(\".%[1]s\")...))\n", field.Name)
 		case reflect.Map:
-			valueType := field.Type.Elem()
-			className := field.Type.String()
-			className = regexpForPackage.ReplaceAllString(className, "")
-			if (valueType.Kind() == reflect.Ptr && valueType.Elem().Kind() == reflect.Struct) || valueType.Kind() == reflect.Struct {
-				switch field.Type.Key().Kind() {
+			className := regexpForPackage.ReplaceAllString(field.TypeStr, "")
+			if isMapElemPtrToStruct(field.MapElem) || isStructTypeWithRegistry(field.MapElem, f.Registry.NamedTypes) {
+				keyKind := deriveKindFromName(field.MapKey)
+				switch keyKind {
 				case reflect.String:
 					template = fmt.Sprintf(mapStrCopyTemplateForPointer, field.Name, className)
-				case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64, reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+				case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+					reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 					template = fmt.Sprintf(mapIntCopyTemplateForPointer, field.Name, className)
 				default:
 					return nil, fmt.Errorf("unsupported map key type for field %s", field.Name)
@@ -50,18 +44,18 @@ func (f *SrcFile) getCopyFromImplementation(structureName string, strType reflec
 				template = fmt.Sprintf(mapCopyTemplate, field.Name, className)
 			}
 		case reflect.Slice:
-			elemType := field.Type.Elem()
-			if (elemType.Kind() == reflect.Ptr && elemType.Elem().Kind() == reflect.Struct) || elemType.Kind() == reflect.Struct {
-				className := elemType.Elem().Name()
-				template = fmt.Sprintf(sliceOfPointerCopyTemplate, field.Name, className)
+			if field.IsPtr {
+				// slice of pointer to struct
+				template = fmt.Sprintf(sliceOfPointerCopyTemplate, field.Name, field.ElemType)
 			} else {
 				template = fmt.Sprintf("\tdst.%[1]s = append(dst.%[1]s[:0], src.%[1]s...)\n", field.Name)
 			}
 		case reflect.Ptr:
-			if field.Type.Elem().String() == "structpb.Struct" || field.Type.Elem().String() == "structpb.Value" {
-				template = fmt.Sprintf(structpbCopyTemplate, field.Name, field.Type.Elem().String())
-			} else if field.Type.Elem().Kind() == reflect.Struct {
-				fieldType := strings.Replace(field.Type.Elem().Name(), f.PackageName+".", "", 1)
+			elemTypeStr := strings.TrimPrefix(field.TypeStr, "*")
+			if elemTypeStr == "structpb.Struct" || elemTypeStr == "structpb.Value" {
+				template = fmt.Sprintf(structpbCopyTemplate, field.Name, elemTypeStr)
+			} else if isStructTypeWithRegistry(elemTypeStr, f.Registry.NamedTypes) {
+				fieldType := strings.Replace(field.ElemType, f.PackageName+".", "", 1)
 				if isImplementator {
 					template = fmt.Sprintf(pointerCopyTemplateImplementatorWithNilCheck, field.Name, fieldType)
 				} else {
@@ -72,21 +66,20 @@ func (f *SrcFile) getCopyFromImplementation(structureName string, strType reflec
 			}
 		case reflect.Interface:
 			var interfaceCodeBuffer bytes.Buffer
-			for i, v := range f.findInterfaceImplementators(field.Type) {
-				wrapperType := reg.TypeRegistry[v]
-				if wrapperType.NumField() > 0 {
-					innerFieldName := wrapperType.Field(0).Name
-					innerFieldType := wrapperType.Field(0).Type
+			for i, v := range f.findInterfaceImplementatorsByName(field.TypeStr) {
+				wrapperSI := f.Registry.Structs[v]
+				if wrapperSI != nil && len(wrapperSI.Fields) > 0 {
+					innerField := wrapperSI.Fields[0]
 					nilCheck := ""
-					if innerFieldType.Kind() == reflect.Ptr || innerFieldType.Kind() == reflect.Interface {
-						nilCheck = fmt.Sprintf(" && v%d.%s != nil", i, innerFieldName)
+					if innerField.IsPtr || innerField.Kind == reflect.Interface {
+						nilCheck = fmt.Sprintf(" && v%d.%s != nil", i, innerField.Name)
 					}
 
 					interfaceCodeBuffer.WriteString(fmt.Sprintf(`if v%[1]d, ok := src.%[2]s.(*%[3]s); ok%[6]s {
 			if !redefiner.Redefine("%[5]s.%[4]s", wildcardPath, []byte("%[4]s"), unsafe.Pointer(&v%[1]d.%[4]s), unsafe.Pointer(&dst.%[2]s)) {
 				dst.%[2]s = v%[1]d.copy(redefiner, append(wildcardPath, []byte(".%[4]s")...))
 			}
-		} else `, i, field.Name, v, innerFieldName, structureName, nilCheck))
+		} else `, i, field.Name, v, innerField.Name, structureName, nilCheck))
 				} else {
 					interfaceCodeBuffer.WriteString(fmt.Sprintf(`if v%[1]d, ok := src.%[2]s.(*%[3]s); ok {
 			dst.%[2]s = v%[1]d.copy(redefiner, wildcardPath)
@@ -107,16 +100,14 @@ func (f *SrcFile) getCopyFromImplementation(structureName string, strType reflec
 		if isImplementator {
 			result.WriteString(template)
 		} else {
-			result.WriteString(wrapCpTemplateWithRedefiner(structureName, template, field))
+			result.WriteString(wrapCpTemplateWithRedefiner(structureName, template, field.Name))
 		}
 	}
 	return result.Bytes(), nil
 }
 
-func wrapCpTemplateWithRedefiner(className string, template string, field reflect.StructField) string {
-	fieldName := field.Name
+func wrapCpTemplateWithRedefiner(className string, template string, fieldName string) string {
 	indentedTemplate := indentLines(template, "\t")
-
 	return fmt.Sprintf("\tif !redefiner.Redefine(\"%[2]s.%[1]s\", wildcardPath, []byte(\"%[1]s\"), unsafe.Pointer(&src.%[1]s), unsafe.Pointer(&dst.%[1]s)) {\n%[3]s\t}\n", fieldName, className, indentedTemplate)
 }
 
@@ -171,41 +162,39 @@ func generateQtcName(className string) string {
 	return strings.ToLower(className[:1]) + className[1:] + "JSON"
 }
 
-func (f *SrcFile) getFilterImplementation(structureName string, strType reflect.Type) ([]byte, error) {
+func (f *SrcFile) getFilterImplementation(structureName string, si *StructInfo) ([]byte, error) {
 	var result bytes.Buffer
 	var template string
 	isImplementator := f.isImplementator(structureName)
 
-	for i := 0; i < strType.NumField(); i++ {
-		field := strType.Field(i)
-		if !field.IsExported() {
-			continue
-		}
-		switch field.Type.Kind() {
+	for _, field := range si.Fields {
+		switch field.Kind {
 		case reflect.Chan, reflect.Func, reflect.UnsafePointer:
 			continue
 		case reflect.Struct:
 			template = fmt.Sprintf("\tobj.%[1]s.filter(modifier, append(path, []byte(\".%[1]s\")...))\n", field.Name)
 		case reflect.Ptr:
-			if field.Type.Elem().String() == "structpb.Struct" {
+			elemTypeStr := strings.TrimPrefix(field.TypeStr, "*")
+			if field.TypeStr == "*structpb.Struct" {
 				template = fmt.Sprintf(filterStructpbTemplate, field.Name)
-			} else if field.Type.Elem().String() == "structpb.Value" {
+			} else if field.TypeStr == "*structpb.Value" {
 				template = fmt.Sprintf(filterSimpleTemplate, field.Name)
-			} else if field.Type.Elem().Kind() == reflect.Struct {
+			} else if isStructTypeWithRegistry(elemTypeStr, f.Registry.NamedTypes) {
 				template = fmt.Sprintf(filterPtrStructTemplate, field.Name)
 			} else {
 				template = fmt.Sprintf(filterSimpleTemplate, field.Name)
 			}
 		case reflect.Slice:
-			elemType := field.Type.Elem()
-			if (elemType.Kind() == reflect.Ptr && elemType.Elem().Kind() == reflect.Struct) || elemType.Kind() == reflect.Struct {
+			if field.IsPtr {
+				// slice of pointer to struct
+				template = fmt.Sprintf(filterSliceStructTemplate, field.Name)
+			} else if isStructTypeWithRegistry(field.ElemType, f.Registry.NamedTypes) {
 				template = fmt.Sprintf(filterSliceStructTemplate, field.Name)
 			} else {
 				template = fmt.Sprintf(filterSimpleTemplate, field.Name)
 			}
 		case reflect.Map:
-			valueType := field.Type.Elem()
-			if (valueType.Kind() == reflect.Ptr && valueType.Elem().Kind() == reflect.Struct) || valueType.Kind() == reflect.Struct {
+			if isMapElemPtrToStruct(field.MapElem) || isStructTypeWithRegistry(field.MapElem, f.Registry.NamedTypes) {
 				template = fmt.Sprintf(filterMapStructTemplate, field.Name)
 			} else {
 				template = fmt.Sprintf(filterSimpleTemplate, field.Name)
@@ -219,16 +208,14 @@ func (f *SrcFile) getFilterImplementation(structureName string, strType reflect.
 		if isImplementator {
 			result.WriteString(template)
 		} else {
-			result.WriteString(wrapFilterTemplateWithModifier(structureName, template, field))
+			result.WriteString(wrapFilterTemplateWithModifier(structureName, template, field.Name))
 		}
 	}
 	return result.Bytes(), nil
 }
 
-func wrapFilterTemplateWithModifier(className string, template string, field reflect.StructField) string {
-	fieldName := field.Name
+func wrapFilterTemplateWithModifier(className string, template string, fieldName string) string {
 	indentedTemplate := indentLines(template, "\t")
-
 	return fmt.Sprintf(`	if modifier.Keep(path, []byte("%[1]s")) {
 %[2]s	} else {
 		ZeroValue(unsafe.Pointer(&obj.%[1]s), GetType("%[3]s.%[1]s"))
@@ -249,53 +236,50 @@ func generateFilterFunctionForImplementator(className, filterFunction string) st
 	return result
 }
 
-func generateGetValueUnsafePointerMethod(className string, strType reflect.Type) string {
+func generateGetValueUnsafePointerMethod(className string, si *StructInfo, namedTypes map[string]reflect.Kind) string {
 	var caseEntries []string
-	for i := 0; i < strType.NumField(); i++ {
-		field := strType.Field(i)
-		if !field.IsExported() {
-			continue
-		}
+	for _, field := range si.Fields {
 		var caseCode string
 		fieldCaseHeader := fmt.Sprintf("\tif bytes.Equal(parts[1],[]byte(\"%s\")) {\n", field.Name)
-		switch field.Type.Kind() {
+		switch field.Kind {
 		case reflect.Chan, reflect.Func, reflect.UnsafePointer, reflect.Interface:
 			continue
 		case reflect.Struct:
 			caseCode = fmt.Sprintf(structGetValueTemplate, field.Name)
 		case reflect.Ptr:
-			if field.Type.Elem().Kind() == reflect.Struct && field.Type.Elem().String() != "structpb.Struct" && field.Type.Elem().String() != "structpb.Value" {
+			elemTypeStr := strings.TrimPrefix(field.TypeStr, "*")
+			if isStructTypeWithRegistry(elemTypeStr, namedTypes) && field.TypeStr != "*structpb.Struct" && field.TypeStr != "*structpb.Value" {
 				caseCode = fmt.Sprintf(ptrStructGetValueTemplate, field.Name)
 			} else {
 				caseCode = fmt.Sprintf(ptrGetValueTemplate, field.Name)
 			}
 		case reflect.Slice:
-			if field.Type.Elem().Kind() == reflect.Ptr && field.Type.Elem().Elem().Kind() == reflect.Struct {
+			if field.IsPtr {
+				// slice of pointer to struct
 				caseCode = fmt.Sprintf(sliceStructGetValueTemplate, field.Name)
 			} else {
 				caseCode = fmt.Sprintf(sliceGetValueTemplate, field.Name)
 			}
 		case reflect.Map:
-			switch field.Type.Key().Kind() {
+			keyKind := deriveKindFromName(field.MapKey)
+			switch keyKind {
 			case reflect.String:
-				if field.Type.Elem().Kind() == reflect.Ptr && field.Type.Elem().Elem().Kind() == reflect.Struct {
+				if isMapElemPtrToStruct(field.MapElem) {
 					caseCode = fmt.Sprintf(mapStrStructGetValueTemplate, field.Name)
 				} else {
 					caseCode = fmt.Sprintf(mapStrGetValueTemplate, field.Name)
 				}
 			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-				keyTypeName := field.Type.Key().String()
-				if field.Type.Elem().Kind() == reflect.Ptr && field.Type.Elem().Elem().Kind() == reflect.Struct {
-					caseCode = fmt.Sprintf(mapIntStructGetValueTemplate, field.Name, keyTypeName)
+				if isMapElemPtrToStruct(field.MapElem) {
+					caseCode = fmt.Sprintf(mapIntStructGetValueTemplate, field.Name, field.MapKey)
 				} else {
-					caseCode = fmt.Sprintf(mapIntGetValueTemplate, field.Name, keyTypeName)
+					caseCode = fmt.Sprintf(mapIntGetValueTemplate, field.Name, field.MapKey)
 				}
 			case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-				keyTypeName := field.Type.Key().String()
-				if field.Type.Elem().Kind() == reflect.Ptr && field.Type.Elem().Elem().Kind() == reflect.Struct {
-					caseCode = fmt.Sprintf(mapUintStructGetValueTemplate, field.Name, keyTypeName)
+				if isMapElemPtrToStruct(field.MapElem) {
+					caseCode = fmt.Sprintf(mapUintStructGetValueTemplate, field.Name, field.MapKey)
 				} else {
-					caseCode = fmt.Sprintf(mapUintGetValueTemplate, field.Name, keyTypeName)
+					caseCode = fmt.Sprintf(mapUintGetValueTemplate, field.Name, field.MapKey)
 				}
 			default:
 				caseCode = fmt.Sprintf(`	return nil, nil, fmt.Errorf("unsupported map key type for field %[1]s", "%[1]s")

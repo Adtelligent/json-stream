@@ -2,7 +2,6 @@ package gen
 
 import (
 	"bytes"
-	"github.com/Adtelligent/json-stream/reg"
 	"reflect"
 	"strings"
 )
@@ -14,26 +13,32 @@ func (f *SrcFile) getUnmarshalFile() (string, error) {
 	buf.WriteString(header)
 	updateBody := ""
 	for _, structName := range f.Structures {
-		strType := reg.TypeRegistry[structName]
-		for i := 0; i < strType.NumField(); i++ {
-			field := strType.Field(i)
-			if !field.IsExported() || field.Type.Kind() != reflect.Interface {
+		si := f.Registry.Structs[structName]
+		if si == nil {
+			continue
+		}
+		for _, fi := range si.Fields {
+			if fi.Kind != reflect.Interface {
 				continue
 			}
 			bindingBlocks := ""
-			implementators := f.findInterfaceImplementators(field.Type)
+			implementators := f.findInterfaceImplementatorsByName(fi.TypeStr)
 			for _, impl := range implementators {
-				implType := reg.TypeRegistry[impl]
-				jsonName := getJsonName(implType.Field(0))
+				implSI := f.Registry.Structs[impl]
+				if implSI == nil || len(implSI.Fields) == 0 {
+					continue
+				}
+				implFirstField := implSI.Fields[0]
+				jsonName := getJsonName(implFirstField)
 				decoderName := "myInterfaceFieldDecoder" + impl + "_"
-				block := strings.Replace(bindingBlockTemplate, "{fieldName}", field.Name, -1)
+				block := strings.Replace(bindingBlockTemplate, "{fieldName}", fi.Name, -1)
 				block = strings.Replace(block, "{impl}", impl, -1)
 				block = strings.Replace(block, "{jsonName}", jsonName, -1)
 				block = strings.Replace(block, "{decoderName}", decoderName, -1)
 				bindingBlocks += block
 			}
 			fieldBlock := strings.Replace(updateFieldTemplate, "{fullStructName}", f.PackageName+"."+structName, -1)
-			fieldBlock = strings.Replace(fieldBlock, "{fieldName}", field.Name, -1)
+			fieldBlock = strings.Replace(fieldBlock, "{fieldName}", fi.Name, -1)
 			fieldBlock = strings.Replace(fieldBlock, "{bindingBlocks}", bindingBlocks, -1)
 			updateBody += fieldBlock
 		}
@@ -42,20 +47,27 @@ func (f *SrcFile) getUnmarshalFile() (string, error) {
 	buf.WriteString(customExtensionSection)
 
 	for _, structName := range f.Structures {
-		strType := reg.TypeRegistry[structName]
-		for i := 0; i < strType.NumField(); i++ {
-			field := strType.Field(i)
-			if !field.IsExported() || field.Type.Kind() != reflect.Interface {
+		si := f.Registry.Structs[structName]
+		if si == nil {
+			continue
+		}
+		for _, fi := range si.Fields {
+			if fi.Kind != reflect.Interface {
 				continue
 			}
-			implementators := f.findInterfaceImplementators(field.Type)
+			implementators := f.findInterfaceImplementatorsByName(fi.TypeStr)
 			for _, impl := range implementators {
-				implType := reg.TypeRegistry[impl]
+				implSI := f.Registry.Structs[impl]
+				if implSI == nil || len(implSI.Fields) == 0 {
+					continue
+				}
+				implFirstField := implSI.Fields[0]
 				decoderName := "myInterfaceFieldDecoder" + impl + "_"
 				block := strings.Replace(decoderTemplate, "{decoderName}", decoderName, -1)
 				block = strings.Replace(block, "{impl}", impl, -1)
-				block = strings.Replace(block, "{firstFieldName}", implType.Field(0).Name, -1)
-				block = strings.Replace(block, "{interfaceType}", field.Type.Name(), -1)
+				block = strings.Replace(block, "{firstFieldName}", implFirstField.Name, -1)
+				// The interface type name is the unexported type string, e.g. "isBidRequest_DistributionchannelOneof"
+				block = strings.Replace(block, "{interfaceType}", fi.TypeStr, -1)
 				buf.WriteString(block)
 			}
 		}

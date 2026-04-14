@@ -8,8 +8,6 @@ import (
 	"os"
 	"reflect"
 	"strings"
-
-	"github.com/Adtelligent/json-stream/reg"
 )
 
 var (
@@ -105,17 +103,17 @@ func LoadRawStringFieldsIfConfigured() error {
 	return nil
 }
 
-func isRequiredField(className string, field reflect.StructField) bool {
+func isRequiredField(className string, fi FieldInfo) bool {
 	if classFields, ok := requiredFieldsRegistry[className]; ok {
-		_, isRequired := classFields[field.Name]
+		_, isRequired := classFields[fi.Name]
 		return isRequired
 	}
 	return false
 }
 
-func isRawStringField(className string, field reflect.StructField) bool {
+func isRawStringField(className string, fi FieldInfo) bool {
 	if classFields, ok := rawStringFieldsRegistry[className]; ok {
-		_, isRaw := classFields[field.Name]
+		_, isRaw := classFields[fi.Name]
 		return isRaw
 	}
 	return false
@@ -161,18 +159,18 @@ func parseNameFromProtoTag(tag string) string {
 	return tag[nameIndex : nameIndex+comma]
 }
 
-func getJsonName(field reflect.StructField) string {
-	jsonName := parseJSONNameFromProtoTag(field.Tag.Get("protobuf"))
+func getJsonName(fi FieldInfo) string {
+	jsonName := parseJSONNameFromProtoTag(fi.Tag.Get("protobuf"))
 	if jsonName != "" {
 		return jsonName
 	}
 
-	jsonName = parseNameFromProtoTag(field.Tag.Get("protobuf"))
+	jsonName = parseNameFromProtoTag(fi.Tag.Get("protobuf"))
 	if jsonName != "" {
 		return jsonName
 	}
 
-	return strings.Replace(field.Tag.Get("json"), ",omitempty", "", -1)
+	return strings.Replace(fi.Tag.Get("json"), ",omitempty", "", -1)
 }
 
 func getWriteJSON(className string, f *SrcFile) (string, error) {
@@ -183,15 +181,15 @@ func getWriteJSON(className string, f *SrcFile) (string, error) {
 	}
 }
 
-func wrapTemplateWithCondition(template string, field reflect.StructField, className string) string {
-	fieldName := field.Name
+func wrapTemplateWithCondition(template string, fi FieldInfo, className string) string {
+	fieldName := fi.Name
 
-	if isRequiredField(className, field) {
+	if isRequiredField(className, fi) {
 		return template
 	}
 
 	var condition string
-	switch field.Type.Kind() {
+	switch fi.Kind {
 	case reflect.Ptr, reflect.Interface:
 		condition = fmt.Sprintf("d.%[2]s != nil && mask.In(\"%[1]s.%[2]s\")", className, fieldName)
 	case reflect.Struct:
@@ -208,25 +206,35 @@ func wrapTemplateWithCondition(template string, field reflect.StructField, class
 	return fmt.Sprintf("{%% if %s %%}%s{%% endif %%}\n", condition, template)
 }
 
-func wrapTemplateWithConditionForImplementator(template string, field reflect.StructField, className string) string {
-	fieldName := field.Name
+func wrapTemplateWithConditionForImplementator(template string, fi FieldInfo, className string) string {
+	fieldName := fi.Name
 	condition := fmt.Sprintf("mask.In(\"%[1]s.%[2]s\")", className, fieldName)
 	return fmt.Sprintf("{%% if %s %%}%s{%% endif %%}\n", condition, template)
 }
 
-func replaceMacros(template string, className string, field reflect.StructField) string {
-	template = wrapTemplateWithCondition(template, field, className)
-	template = strings.Replace(template, "{fieldName}", field.Name, -1)
+func qtplFuncName(fi FieldInfo) string {
+	// ElemType is set for pointer/slice fields (bare name, no package qualifier).
+	// For struct fields (non-pointer), ElemType is empty; use TypeStr instead.
+	name := fi.ElemType
+	if name == "" {
+		name = fi.TypeStr
+	}
+	return generateQtcName(getPrintableClassName(name))
+}
+
+func replaceMacros(template string, className string, fi FieldInfo) string {
+	template = wrapTemplateWithCondition(template, fi, className)
+	template = strings.Replace(template, "{fieldName}", fi.Name, -1)
 	template = strings.Replace(template, "{className}", className, -1)
-	template = strings.Replace(template, "{qtplFunc}", generateQtcName(getPrintableClassName(field.Type.String())), -1)
+	template = strings.Replace(template, "{qtplFunc}", qtplFuncName(fi), -1)
 	return template
 }
 
-func replaceMacrosForImplementator(template string, className string, field reflect.StructField) string {
-	template = wrapTemplateWithConditionForImplementator(template, field, className)
-	template = strings.Replace(template, "{fieldName}", field.Name, -1)
+func replaceMacrosForImplementator(template string, className string, fi FieldInfo) string {
+	template = wrapTemplateWithConditionForImplementator(template, fi, className)
+	template = strings.Replace(template, "{fieldName}", fi.Name, -1)
 	template = strings.Replace(template, "{className}", className, -1)
-	template = strings.Replace(template, "{qtplFunc}", generateQtcName(getPrintableClassName(field.Type.String())), -1)
+	template = strings.Replace(template, "{qtplFunc}", qtplFuncName(fi), -1)
 	return template
 }
 
@@ -240,25 +248,24 @@ func getPrintableClassName(t string) string {
 }
 
 func getStructureJSON(className string, f *SrcFile) (string, error) {
-	str := reg.TypeRegistry[className]
+	si := f.Registry.Structs[className]
 	var result bytes.Buffer
 	result.WriteString("{\n")
 	result.WriteString("		{% code comma := false %}\n")
 
-	for i := 0; i < str.NumField(); i++ {
-		field := str.Field(i)
-		jsonName := getJsonName(field)
+	for _, fi := range si.Fields {
+		jsonName := getJsonName(fi)
 
-		if jsonName == "" && field.Type.Kind() != reflect.Interface {
+		if jsonName == "" && fi.Kind != reflect.Interface {
 			continue
 		}
 
-		fieldTemplate, err := generateFieldTemplate(field.Type, field, f, jsonName, className)
+		fieldTemplate, err := generateFieldTemplate(fi, f, jsonName, className)
 		if err != nil {
-			return "", fmt.Errorf("error generating template for field %s: %w", field.Name, err)
+			return "", fmt.Errorf("error generating template for field %s: %w", fi.Name, err)
 		}
 
-		result.WriteString(replaceMacros(fieldTemplate, className, field))
+		result.WriteString(replaceMacros(fieldTemplate, className, fi))
 	}
 
 	result.WriteString("	}")
@@ -268,28 +275,27 @@ func getStructureJSON(className string, f *SrcFile) (string, error) {
 
 func getImplementatorJSON(className string, f *SrcFile) (string, error) {
 	var result bytes.Buffer
-	str := reg.TypeRegistry[className]
-	for i := 0; i < str.NumField(); i++ {
-		field := str.Field(i)
-		jsonName := getJsonName(field)
+	si := f.Registry.Structs[className]
+	for _, fi := range si.Fields {
+		jsonName := getJsonName(fi)
 
-		if jsonName == "" && field.Type.Kind() != reflect.Interface {
+		if jsonName == "" && fi.Kind != reflect.Interface {
 			continue
 		}
 
-		fieldTemplate, err := generateFieldTemplateForImplementator(field.Type, field, f, jsonName, className)
+		fieldTemplate, err := generateFieldTemplateForImplementator(fi, f, jsonName, className)
 		if err != nil {
-			return "", fmt.Errorf("error generating template for field %s: %w", field.Name, err)
+			return "", fmt.Errorf("error generating template for field %s: %w", fi.Name, err)
 		}
 
-		result.WriteString(replaceMacrosForImplementator(fieldTemplate, className, field))
+		result.WriteString(replaceMacrosForImplementator(fieldTemplate, className, fi))
 	}
 	return result.String(), nil
 }
 
-func generateFieldTemplate(typ reflect.Type, field reflect.StructField, f *SrcFile, jsonName string, className string) (string, error) {
-	fieldName := formatFieldName(typ, field.Name)
-	template, err := generateInnerFieldTemplate(typ, fieldName, f, className, field)
+func generateFieldTemplate(fi FieldInfo, f *SrcFile, jsonName string, className string) (string, error) {
+	fieldName := formatFieldName(fi)
+	template, err := generateInnerFieldTemplate(fi, fieldName, f, className)
 	if err != nil {
 		return "", err
 	}
@@ -297,15 +303,15 @@ func generateFieldTemplate(typ reflect.Type, field reflect.StructField, f *SrcFi
 	return wrappedTemplate, nil
 }
 
-func generateFieldTemplateForImplementator(typ reflect.Type, field reflect.StructField, f *SrcFile, jsonName string, className string) (string, error) {
-	fieldName := formatFieldName(typ, field.Name)
-	template, err := generateInnerFieldTemplate(typ, fieldName, f, className, field)
+func generateFieldTemplateForImplementator(fi FieldInfo, f *SrcFile, jsonName string, className string) (string, error) {
+	fieldName := formatFieldName(fi)
+	template, err := generateInnerFieldTemplate(fi, fieldName, f, className)
 	if err != nil {
 		return "", err
 	}
 
-	if typ.Kind() == reflect.Ptr && jsonName != "" {
-		fullTemplate := fmt.Sprintf("{%% if d.%s != nil %%}\"%s\":%s{%% endif %%}", field.Name, jsonName, template)
+	if fi.Kind == reflect.Ptr && jsonName != "" {
+		fullTemplate := fmt.Sprintf("{%% if d.%s != nil %%}\"%s\":%s{%% endif %%}", fi.Name, jsonName, template)
 		return fullTemplate, nil
 	}
 
@@ -313,13 +319,13 @@ func generateFieldTemplateForImplementator(typ reflect.Type, field reflect.Struc
 	return wrappedTemplate, nil
 }
 
-func formatFieldName(typ reflect.Type, fieldName string) string {
-	if typ.Kind() == reflect.Ptr {
-		return "*d." + fieldName
-	} else if typ.Kind() == reflect.Struct {
-		return "&d." + fieldName
+func formatFieldName(fi FieldInfo) string {
+	if fi.Kind == reflect.Ptr {
+		return "*d." + fi.Name
+	} else if fi.Kind == reflect.Struct {
+		return "&d." + fi.Name
 	}
-	return "d." + fieldName
+	return "d." + fi.Name
 }
 
 func formatTemplate(jsonName, template string) string {
@@ -350,10 +356,10 @@ func formatTemplateForImplementator(jsonName, template string) string {
 	)
 }
 
-func generateInnerFieldTemplate(typ reflect.Type, fieldName string, f *SrcFile, className string, field reflect.StructField) (string, error) {
-	if typ.Kind() == reflect.Interface {
+func generateInnerFieldTemplate(fi FieldInfo, fieldName string, f *SrcFile, className string) (string, error) {
+	if fi.Kind == reflect.Interface {
 		var bb bytes.Buffer
-		implementators := f.findInterfaceImplementators(typ)
+		implementators := f.findInterfaceImplementatorsByName(fi.TypeStr)
 		bb.WriteString("{% ")
 		for i, impl := range implementators {
 			bb.WriteString(fmt.Sprintf("if v%d, ok := %s.(*%s); ok %%}\n", i, fieldName, impl))
@@ -367,12 +373,12 @@ func generateInnerFieldTemplate(typ reflect.Type, fieldName string, f *SrcFile, 
 
 		return bb.String(), nil
 	}
-	switch typ.Kind() {
+	switch fi.Kind {
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
 		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 		return replaceTemplate(intQTPLFormatInnerTemplate, fieldName), nil
 	case reflect.String:
-		if isRawStringField(className, field) {
+		if isRawStringField(className, fi) {
 			return replaceTemplate(rawStringQTPLFormatInnerTemplate, fieldName), nil
 		}
 		return replaceTemplate(stringQTPLFormatInnerTemplate, fieldName), nil
@@ -384,15 +390,15 @@ func generateInnerFieldTemplate(typ reflect.Type, fieldName string, f *SrcFile, 
 	case reflect.Float32, reflect.Float64:
 		return replaceTemplate(floatQTPLFormatInnerTemplate, fieldName), nil
 	case reflect.Slice, reflect.Array:
-		return generateSliceTemplate(typ, fieldName, f)
+		return generateSliceTemplate(fi, fieldName, f)
 	case reflect.Struct:
-		return generateStructTemplate(typ, fieldName)
+		return generateStructTemplate(fi, fieldName, f)
 	case reflect.Ptr:
-		return generatePointerTemplate(typ, fieldName, f, className, field)
+		return generatePointerTemplate(fi, fieldName, f, className)
 	case reflect.Map:
-		return generateMapTemplate(typ, fieldName, f)
+		return generateMapTemplate(fi, fieldName, f)
 	default:
-		return "", fmt.Errorf("unsupported type: %v", typ.Kind())
+		return "", fmt.Errorf("unsupported type: %v", fi.Kind)
 	}
 }
 
@@ -400,21 +406,36 @@ func replaceTemplate(template, fieldName string) string {
 	return strings.ReplaceAll(template, "{fieldName}", fieldName)
 }
 
-var emptyField = reflect.StructField{}
-
-func generateSliceTemplate(typ reflect.Type, fieldName string, f *SrcFile) (string, error) {
-	elemType := typ.Elem()
-	var err error
-	var nestedTemplate string
-	if elemType.Kind() == reflect.Struct {
-		nestedTemplate, err = generateInnerFieldTemplate(elemType, "&v", f, "", emptyField)
-	} else {
-		nestedTemplate, err = generateInnerFieldTemplate(elemType, "v", f, "", emptyField)
+func generateSliceTemplate(fi FieldInfo, fieldName string, f *SrcFile) (string, error) {
+	// Build a synthetic FieldInfo for the element type.
+	elemTypeStr := fi.ElemType
+	if elemTypeStr == "" {
+		// fallback: strip leading []
+		elemTypeStr = strings.TrimPrefix(fi.TypeStr, "[]")
+		elemTypeStr = strings.TrimPrefix(elemTypeStr, "*")
+	}
+	rawElemTypeStr := strings.TrimPrefix(fi.TypeStr, "[]")
+	elemKind, elemIsPtr, _, _, elemElem, _, _ := deriveKindWithRegistry(rawElemTypeStr, f.Registry.NamedTypes)
+	elemFI := FieldInfo{
+		Name:     "",
+		TypeStr:  rawElemTypeStr,
+		Kind:     elemKind,
+		IsPtr:    elemIsPtr,
+		ElemType: elemElem,
 	}
 
+	var nestedFieldName string
+	if elemFI.Kind == reflect.Struct {
+		nestedFieldName = "&v"
+	} else {
+		nestedFieldName = "v"
+	}
+
+	nestedTemplate, err := generateInnerFieldTemplate(elemFI, nestedFieldName, f, "")
 	if err != nil {
 		return "", err
 	}
+
 	totalVar := "total" + strings.ReplaceAll(fieldName, ".", "")
 	template := replaceTemplate(sliceQTPLFormatInnerTemplate, fieldName)
 	template = strings.ReplaceAll(template, "{totalVar}", totalVar)
@@ -422,33 +443,63 @@ func generateSliceTemplate(typ reflect.Type, fieldName string, f *SrcFile) (stri
 	return template, nil
 }
 
-func generateStructTemplate(typ reflect.Type, fieldName string) (string, error) {
+func generateStructTemplate(fi FieldInfo, fieldName string, f *SrcFile) (string, error) {
 	fieldName = strings.ReplaceAll(fieldName, "*", "")
-	if _, ok := reg.TypeRegistry[typ.Name()]; !ok {
-		if typ.String() == "structpb.Struct" || typ.String() == "structpb.Value" {
-			return replaceTemplate(structpbQTPLFormatTemplate, fieldName), nil
+	// Check for structpb special types by full TypeStr
+	typeStr := fi.TypeStr
+	if typeStr == "structpb.Struct" || typeStr == "structpb.Value" {
+		return replaceTemplate(structpbQTPLFormatTemplate, fieldName), nil
+	}
+	// Determine the struct type name to look up in the registry.
+	// Priority: ElemType (populated for ptr/slice fields) > TypeStr (bare struct fields).
+	// fi.Name is the Go field name — never use it as the struct type name.
+	lookupName := fi.ElemType
+	if lookupName == "" {
+		// TypeStr may have a package qualifier; strip it for registry lookup.
+		lookupName = typeStr
+		if idx := strings.LastIndex(lookupName, "."); idx >= 0 {
+			lookupName = lookupName[idx+1:]
 		}
-		return "", fmt.Errorf("unknown struct %s", typ.Name())
+	}
+	if _, ok := f.Registry.Structs[lookupName]; !ok {
+		return "", fmt.Errorf("unknown struct %s", typeStr)
 	}
 	return replaceTemplate(structQTPLFormatInnerTemplate, fieldName), nil
 }
 
-func generatePointerTemplate(typ reflect.Type, fieldName string, f *SrcFile, className string, field reflect.StructField) (string, error) {
-	elemType := typ.Elem()
-	nestedTemplate, err := generateInnerFieldTemplate(elemType, fieldName, f, className, field)
+func generatePointerTemplate(fi FieldInfo, fieldName string, f *SrcFile, className string) (string, error) {
+	// Build FieldInfo for the element (dereferenced) type.
+	elemTypeStr := fi.TypeStr
+	if strings.HasPrefix(elemTypeStr, "*") {
+		elemTypeStr = elemTypeStr[1:]
+	}
+	elemKind, elemIsPtr, elemIsSlice, elemIsMap, elemElem, elemMapKey, elemMapElem := deriveKindWithRegistry(elemTypeStr, f.Registry.NamedTypes)
+	elemFI := FieldInfo{
+		Name:     fi.Name,
+		TypeStr:  elemTypeStr,
+		Kind:     elemKind,
+		IsPtr:    elemIsPtr,
+		IsSlice:  elemIsSlice,
+		IsMap:    elemIsMap,
+		ElemType: elemElem,
+		MapKey:   elemMapKey,
+		MapElem:  elemMapElem,
+	}
+
+	nestedTemplate, err := generateInnerFieldTemplate(elemFI, fieldName, f, className)
 	if err != nil {
 		return "", err
 	}
 	result := strings.ReplaceAll(pointerQTPLFormatInnerTemplate, "{nestedTemplate}", nestedTemplate)
-	if isRequiredField(className, field) {
+	if isRequiredField(className, fi) {
 		ptrFieldName := strings.TrimPrefix(fieldName, "*")
-		return fmt.Sprintf("{%% if %s != nil %%}%s{%% else %%}%s{%% endif %%}", ptrFieldName, result, zeroValueLiteral(elemType)), nil
+		return fmt.Sprintf("{%% if %s != nil %%}%s{%% else %%}%s{%% endif %%}", ptrFieldName, result, zeroValueLiteral(elemFI)), nil
 	}
 	return result, nil
 }
 
-func zeroValueLiteral(typ reflect.Type) string {
-	switch typ.Kind() {
+func zeroValueLiteral(fi FieldInfo) string {
+	switch fi.Kind {
 	case reflect.Bool:
 		if *boolToInt {
 			return "0"
@@ -465,28 +516,48 @@ func zeroValueLiteral(typ reflect.Type) string {
 	}
 }
 
-func generateMapTemplate(typ reflect.Type, fieldName string, f *SrcFile) (string, error) {
+func generateMapTemplate(fi FieldInfo, fieldName string, f *SrcFile) (string, error) {
+	keyKind := deriveKindFromName(fi.MapKey)
+	keyFI := FieldInfo{
+		Name:    "",
+		TypeStr: fi.MapKey,
+		Kind:    keyKind,
+	}
 
-	var err error
 	var keyTemplate string
-	if typ.Key().Kind() == reflect.Struct {
-		keyTemplate, err = generateInnerFieldTemplate(typ.Key(), "&k", f, "", emptyField)
+	var err error
+	if keyFI.Kind == reflect.Struct {
+		keyTemplate, err = generateInnerFieldTemplate(keyFI, "&k", f, "")
 	} else {
-		keyTemplate, err = generateInnerFieldTemplate(typ.Key(), "k", f, "", emptyField)
+		keyTemplate, err = generateInnerFieldTemplate(keyFI, "k", f, "")
 	}
 	if err != nil {
 		return "", err
 	}
 
-	if typ.Key().Kind() != reflect.String {
+	if keyFI.Kind != reflect.String {
 		keyTemplate = `"` + keyTemplate + `"`
 	}
 
+	elemTypeStr := fi.MapElem
+	elemKind, elemIsPtr, elemIsSlice, elemIsMap, elemElem, elemMapKey, elemMapElem := deriveKindWithRegistry(elemTypeStr, f.Registry.NamedTypes)
+	valueFI := FieldInfo{
+		Name:     "",
+		TypeStr:  elemTypeStr,
+		Kind:     elemKind,
+		IsPtr:    elemIsPtr,
+		IsSlice:  elemIsSlice,
+		IsMap:    elemIsMap,
+		ElemType: elemElem,
+		MapKey:   elemMapKey,
+		MapElem:  elemMapElem,
+	}
+
 	var valueTemplate string
-	if typ.Elem().Kind() == reflect.Struct {
-		valueTemplate, err = generateInnerFieldTemplate(typ.Elem(), "&v", f, "", emptyField)
+	if valueFI.Kind == reflect.Struct {
+		valueTemplate, err = generateInnerFieldTemplate(valueFI, "&v", f, "")
 	} else {
-		valueTemplate, err = generateInnerFieldTemplate(typ.Elem(), "v", f, "", emptyField)
+		valueTemplate, err = generateInnerFieldTemplate(valueFI, "v", f, "")
 	}
 	if err != nil {
 		return "", err

@@ -9,8 +9,6 @@ import (
 	"github.com/Adtelligent/json-stream/gen"
 )
 
-var prepocessing = flag.Bool("prepocessing", false, "is prepocessing mode")
-
 func main() {
 	flag.Parse()
 	args := os.Args
@@ -33,22 +31,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to read source content: %s", err)
 	}
-	if err := gen.ChangeInputFilePackageAndSave(b); err != nil {
-		log.Fatalf("cant read file. err: %s", err)
-	}
-	if *prepocessing {
-		gen.PreprocessFile(b)
-		return
-	}
 
-	defer func() {
-		err := gen.RemovePreprocessFiles()
-		if err != nil {
-			log.Fatalf("failed to remove preprocess files. err: %s", err)
-		}
-	}()
-
-	f := gen.NewWithContent(b)
+	f, err := gen.NewWithContent(b)
+	if err != nil {
+		log.Fatalf("failed to initialize generator: %s", err)
+	}
 
 	structuresFile, err := f.GetStructureFile()
 	if err != nil {

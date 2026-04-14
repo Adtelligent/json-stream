@@ -8,8 +8,6 @@ import (
 	"reflect"
 	"regexp"
 	"strings"
-
-	"github.com/Adtelligent/json-stream/reg"
 )
 
 var copyFunctionsFeature = flag.Bool("copyFunctionsFeature", true, "Add copy function to structures")
@@ -20,14 +18,21 @@ type SrcFile struct {
 	PackageName             string
 	Implementators          map[string]struct{}
 	ImplementatorStructures map[string]struct{}
+	Registry                *Registry
 }
 
-func (f *SrcFile) init() {
-	for v := range reg.TypeRegistry {
-		f.Structures = append(f.Structures, v)
+func (f *SrcFile) init() error {
+	reg, err := BuildRegistryFromAST(f.Content)
+	if err != nil {
+		return fmt.Errorf("build registry: %w", err)
+	}
+	f.Registry = reg
+	for name := range reg.Structs {
+		f.Structures = append(f.Structures, name)
 	}
 	f.readPackageName()
 	f.findAllImplementators()
+	return nil
 }
 
 var packageNameReg = regexp.MustCompile(`package\s+(\w+)`)
@@ -46,9 +51,9 @@ func (f *SrcFile) GetStructureFile() (string, error) {
 	var body bytes.Buffer
 	var mapEntries []string
 	for _, className := range f.Structures {
-		strType := reg.TypeRegistry[className]
+		si := f.Registry.Structs[className]
 		if *copyFunctionsFeature {
-			copyFunction, err := f.getCopyFromImplementation(className, strType)
+			copyFunction, err := f.getCopyFromImplementation(className, si)
 			if err != nil {
 				return "", err
 			}
@@ -58,8 +63,7 @@ func (f *SrcFile) GetStructureFile() (string, error) {
 				body.WriteString(generateCopyFunction(className, string(copyFunction)))
 			}
 
-			// Генерируем Filter() метод
-			filterFunction, err := f.getFilterImplementation(className, strType)
+			filterFunction, err := f.getFilterImplementation(className, si)
 			if err != nil {
 				return "", err
 			}
@@ -70,17 +74,12 @@ func (f *SrcFile) GetStructureFile() (string, error) {
 			}
 		}
 		body.WriteString(generateMarshalJsonFile(className))
-		for i := 0; i < strType.NumField(); i++ {
-			field := strType.Field(i)
-			if !field.IsExported() {
-				continue
-			}
-			entry := fmt.Sprintf("\t\"%[1]s.%[2]s\": reflect.TypeOf(%[1]s{}.%[2]s),", className, field.Name, className, field.Name)
+		for _, fi := range si.Fields {
+			entry := fmt.Sprintf("\t\"%[1]s.%[2]s\": reflect.TypeOf(%[1]s{}.%[2]s),", className, fi.Name)
 			mapEntries = append(mapEntries, entry)
 		}
 
-		body.WriteString(generateGetValueUnsafePointerMethod(className, strType))
-
+		body.WriteString(generateGetValueUnsafePointerMethod(className, si, f.Registry.NamedTypes))
 	}
 
 	result.WriteString(strings.Replace(structureFileTemplate, "{packageName}", f.PackageName, 1))
@@ -97,15 +96,10 @@ func (f *SrcFile) GetUnmarshalFile() (string, error) {
 	return f.getUnmarshalFile()
 }
 
-func (f *SrcFile) findInterfaceImplementators(interfaceType reflect.Type) []string {
-	result := []string{}
-	for _, s := range f.Structures {
-		if reflect.PointerTo(reg.TypeRegistry[s]).Implements(interfaceType) {
-			result = append(result, s)
-		}
-	}
-
-	return result
+// findInterfaceImplementatorsByName returns all struct names that implement
+// the interface identified by ifaceTypeName (e.g. "isBidRequest_DistributionchannelOneof").
+func (f *SrcFile) findInterfaceImplementatorsByName(ifaceTypeName string) []string {
+	return f.Registry.Implementors[ifaceTypeName]
 }
 
 func (f *SrcFile) findAllImplementators() {
@@ -113,14 +107,15 @@ func (f *SrcFile) findAllImplementators() {
 	f.ImplementatorStructures = make(map[string]struct{})
 
 	for _, v := range f.Structures {
-		totalFields := reg.TypeRegistry[v].NumField()
-		for i := 0; i < totalFields; i++ {
-			field := reg.TypeRegistry[v].Field(i)
-			if field.Type.Kind() == reflect.Interface {
-				for _, impl := range f.findInterfaceImplementators(field.Type) {
+		si := f.Registry.Structs[v]
+		for _, fi := range si.Fields {
+			if fi.Kind == reflect.Interface {
+				for _, impl := range f.findInterfaceImplementatorsByName(fi.TypeStr) {
 					f.Implementators[impl] = struct{}{}
-					t := reg.TypeRegistry[impl].Field(0).Type.Name()
-					f.ImplementatorStructures[t] = struct{}{}
+					implSI := f.Registry.Structs[impl]
+					if implSI != nil && len(implSI.Fields) > 0 {
+						f.ImplementatorStructures[implSI.Fields[0].TypeStr] = struct{}{}
+					}
 				}
 			}
 		}
@@ -146,13 +141,14 @@ func (f *SrcFile) GetQTPLFile() (string, error) {
 	return strings.Replace(qtcFileTemplate, "{content}", bb.String(), -1), nil
 }
 
-func NewWithContent(b []byte) *SrcFile {
+func NewWithContent(b []byte) (*SrcFile, error) {
 	f := &SrcFile{
 		Content: b,
 	}
-	f.init()
-
-	return f
+	if err := f.init(); err != nil {
+		return nil, err
+	}
+	return f, nil
 }
 
 var qtcFileTemplate = `{% stripspace %}
@@ -162,7 +158,7 @@ var qtcFileTemplate = `{% stripspace %}
 
 %}
 
-{%code 
+{%code
 	var _ = log.Printf
 %}
 
