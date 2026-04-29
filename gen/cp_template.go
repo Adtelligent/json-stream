@@ -45,7 +45,6 @@ func (f *SrcFile) getCopyFromImplementation(structureName string, si *StructInfo
 			}
 		case reflect.Slice:
 			if field.IsPtr {
-				// slice of pointer to struct
 				template = fmt.Sprintf(sliceOfPointerCopyTemplate, field.Name, field.ElemType)
 			} else {
 				template = fmt.Sprintf("\tdst.%[1]s = append(dst.%[1]s[:0], src.%[1]s...)\n", field.Name)

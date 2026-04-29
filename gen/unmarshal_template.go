@@ -9,7 +9,14 @@ import (
 func (f *SrcFile) getUnmarshalFile() (string, error) {
 	var buf bytes.Buffer
 	header := strings.Replace(packageTemplate, "{packageName}", f.PackageName, -1)
-	header = strings.Replace(header, "{customCode}", customCodeTemplate, -1)
+	customCode := customCodeTemplate
+	fmtImport := ""
+	if *boolToInt {
+		customCode = boolDecoderCodeTemplate + customCodeTemplate
+		fmtImport = "\t\"fmt\""
+	}
+	header = strings.Replace(header, "{customCode}", customCode, -1)
+	header = strings.Replace(header, "{fmtImport}", fmtImport, -1)
 	buf.WriteString(header)
 	updateBody := ""
 	for _, structName := range f.Structures {
@@ -74,6 +81,9 @@ func (f *SrcFile) getUnmarshalFile() (string, error) {
 	}
 
 	buf.WriteString(extensionMethodsTemplate)
+	if *boolToInt {
+		buf.WriteString(boolDecoderMethodTemplate)
+	}
 
 	return buf.String(), nil
 }
@@ -81,7 +91,7 @@ func (f *SrcFile) getUnmarshalFile() (string, error) {
 var packageTemplate = `package {packageName}
 
 import (
-	"fmt"
+{fmtImport}
 	"unsafe"
 	"reflect"
 	jsoniter "github.com/json-iterator/go"
@@ -92,15 +102,19 @@ var json = jsoniter.ConfigCompatibleWithStandardLibrary
 
 {customCode}
 `
-var customCodeTemplate = `type customBoolDecoder struct{}
-
-func init() {
+var customCodeTemplate = `func init() {
 	json.RegisterExtension(&customExtension{})
-	jsoniter.RegisterTypeDecoder("bool", &customBoolDecoder{})
 }
 
 func UnmarshalJson(data []byte, v interface{}) error {
 	return json.Unmarshal(data, v)
+}
+`
+
+var boolDecoderCodeTemplate = `type customBoolDecoder struct{}
+
+func init() {
+	jsoniter.RegisterTypeDecoder("bool", &customBoolDecoder{})
 }
 `
 var extensionMethodsTemplate = `func (ext *customExtension) CreateMapKeyDecoder(typ reflect2.Type) jsoniter.ValDecoder { return nil }
@@ -113,7 +127,9 @@ func (ext *customExtension) DecorateDecoder(typ reflect2.Type, decoder jsoniter.
 func (ext *customExtension) DecorateEncoder(typ reflect2.Type, encoder jsoniter.ValEncoder) jsoniter.ValEncoder {
 	return encoder
 }
+`
 
+var boolDecoderMethodTemplate = `
 func (d *customBoolDecoder) Decode(ptr unsafe.Pointer, iter *jsoniter.Iterator) {
 	switch iter.WhatIsNext() {
 	case jsoniter.NumberValue:
