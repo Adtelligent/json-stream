@@ -14,6 +14,8 @@ var (
 	boolToInt             = flag.Bool("boolToInt", false, "bool to int generation")
 	requiredFieldsConfig  = flag.String("requiredFields", "", "path to JSON config with required fields (used during code generation)")
 	rawStringFieldsConfig = flag.String("rawStringFields", "", "path to JSON config with raw string fields (no escaping, only quotes)")
+	bytesStringFields     = flag.Bool("bytesStringFields", false, "treat all []byte fields as JSON strings in all structs")
+	bytesStringFieldsConf = flag.String("bytesStringFieldsConfig", "", "path to JSON config with []byte fields treated as JSON strings")
 )
 
 // Required fields are always output in JSON without empty value checks.
@@ -21,6 +23,9 @@ var requiredFieldsRegistry = make(map[string]map[string]struct{})
 
 // Raw string fields are output with quotes but without escaping.
 var rawStringFieldsRegistry = make(map[string]map[string]struct{})
+
+// Bytes string fields are marshaled/unmarshaled as JSON strings instead of base64/int arrays.
+var bytesStringFieldsRegistry = make(map[string]map[string]struct{})
 
 // LoadRequiredFieldsConfig loads required fields configuration from JSON file.
 // This is used during code generation to determine which fields should skip empty checks.
@@ -103,6 +108,38 @@ func LoadRawStringFieldsIfConfigured() error {
 	return nil
 }
 
+// LoadBytesStringFieldsConfig loads the selective config for []byte → JSON string treatment.
+// JSON format: {"ClassName": ["Field1", "Field2"], ...}
+func LoadBytesStringFieldsConfig(filePath string) error {
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to read bytes string fields config: %w", err)
+	}
+
+	var config map[string][]string
+	if err := json.Unmarshal(data, &config); err != nil {
+		return fmt.Errorf("failed to parse bytes string fields config: %w", err)
+	}
+
+	for className, fields := range config {
+		if bytesStringFieldsRegistry[className] == nil {
+			bytesStringFieldsRegistry[className] = make(map[string]struct{})
+		}
+		for _, field := range fields {
+			bytesStringFieldsRegistry[className][field] = struct{}{}
+		}
+	}
+
+	return nil
+}
+
+func LoadBytesStringFieldsIfConfigured() error {
+	if bytesStringFieldsConf != nil && *bytesStringFieldsConf != "" {
+		return LoadBytesStringFieldsConfig(*bytesStringFieldsConf)
+	}
+	return nil
+}
+
 func isRequiredField(className string, fi FieldInfo) bool {
 	if classFields, ok := requiredFieldsRegistry[className]; ok {
 		_, isRequired := classFields[fi.Name]
@@ -115,6 +152,20 @@ func isRawStringField(className string, fi FieldInfo) bool {
 	if classFields, ok := rawStringFieldsRegistry[className]; ok {
 		_, isRaw := classFields[fi.Name]
 		return isRaw
+	}
+	return false
+}
+
+func isBytesStringField(className string, fi FieldInfo) bool {
+	if (fi.Kind != reflect.Slice && fi.Kind != reflect.Array) || fi.ElemType != "byte" {
+		return false
+	}
+	if bytesStringFields != nil && *bytesStringFields {
+		return true
+	}
+	if classFields, ok := bytesStringFieldsRegistry[className]; ok {
+		_, ok := classFields[fi.Name]
+		return ok
 	}
 	return false
 }
@@ -390,6 +441,9 @@ func generateInnerFieldTemplate(fi FieldInfo, fieldName string, f *SrcFile, clas
 	case reflect.Float32, reflect.Float64:
 		return replaceTemplate(floatQTPLFormatInnerTemplate, fieldName), nil
 	case reflect.Slice, reflect.Array:
+		if className != "" && isBytesStringField(className, fi) {
+			return replaceTemplate(bytesStringQTPLFormatInnerTemplate, fieldName), nil
+		}
 		return generateSliceTemplate(fi, fieldName, f)
 	case reflect.Struct:
 		return generateStructTemplate(fi, fieldName, f)
@@ -575,6 +629,7 @@ var intQTPLFormatInnerTemplate = `{%d= int({fieldName}) %}`
 
 var stringQTPLFormatInnerTemplate = `{%q= {fieldName} %}`
 var rawStringQTPLFormatInnerTemplate = `"{%s= {fieldName} %}"`
+var bytesStringQTPLFormatInnerTemplate = `{%q= unsafe.String(unsafe.SliceData({fieldName}), len({fieldName})) %}`
 
 var boolQTPLFormatInnerTemplate = `{% if {fieldName} %} true {% else %} false {% endif %}`
 var boolToIntQTPLFormatInnerTemplate = `{% if {fieldName} %} 1 {% else %} 0 {% endif %}`

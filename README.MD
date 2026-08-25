@@ -9,6 +9,7 @@ This library provides a fast and efficient solution for JSON marshaling and unma
   - Custom `boolean` decoder that correctly interprets `true`, `false`, `1`, and `0`.
   - Configuration for required fields via a JSON file.
   - Configuration for fields to be treated as raw strings during unmarshaling.
+  - Support for `[]byte` fields treated as JSON strings (globally or per field via config).
 - **Marshaling Features**:
   - Support for various field types, including integers, strings, booleans, floats, slices, maps, structs, and pointers.
   - Custom handling for `structpb.Struct`.
@@ -34,8 +35,26 @@ json-stream \
   -copyFunctionsFeature \
   -requiredFields=path/to/required_fields.json \
   -rawStringFields=path/to/raw_string_fields.json \
+  -bytesStringFields \
   path/to/your_struct_file.go \
   path/to/output/dir/
+```
+
+To treat only specific `[]byte` fields as JSON strings, use a config file instead:
+
+```bash
+json-stream \
+  -bytesStringFieldsConfig=path/to/bytes_fields.json \
+  path/to/your_struct_file.go \
+  path/to/output/dir/
+```
+
+**`bytes_fields.json`** format:
+```json
+{
+  "BidRequest": ["Id", "AdSlot"],
+  "BidResponse_SeatBid_Bid": ["ImpId"]
+}
 ```
 
 This will generate `*.gen.go` and `*.gen.qtpl` files in the specified output directory.
@@ -51,7 +70,9 @@ This will produce the final `*.gen.qtpl.go` files required by your project.
 - `-boolToInt` (boolean): Enable the conversion of boolean types to integers (`1` or `0`) during **marshaling**.
 - `-copyFunctionsFeature` (boolean): Generate `CopyFrom` and `Filter` functions for structures.
 - `-requiredFields` (string): Path to a JSON file specifying required fields for **unmarshaling**.
-- `-rawStringFields` (string): Path to a JSON file specifying fields to be treated as raw strings during **unmarshaling**.
+- `-rawStringFields` (string): Path to a JSON file specifying fields to be treated as raw strings during **marshaling**.
+- `-bytesStringFields` (boolean): Treat all `[]byte` fields in all structs as JSON strings during **marshaling** and **unmarshaling** (instead of base64).
+- `-bytesStringFieldsConfig` (string): Path to a JSON file specifying which `[]byte` fields per struct to treat as JSON strings. Format: `{"ClassName": ["Field1", "Field2"]}`.
 
 
 ## Customizing Field Copying

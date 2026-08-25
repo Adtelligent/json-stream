@@ -138,7 +138,21 @@ func (f *SrcFile) GetQTPLFile() (string, error) {
 		bb.WriteString(qb)
 	}
 
-	return strings.Replace(qtcFileTemplate, "{content}", bb.String(), -1), nil
+	unsafeImport := ""
+outer:
+	for _, sName := range f.Structures {
+		si := f.Registry.Structs[sName]
+		for _, fi := range si.Fields {
+			if isBytesStringField(sName, fi) {
+				unsafeImport = `"unsafe"`
+				break outer
+			}
+		}
+	}
+
+	result := strings.Replace(qtcFileTemplate, "{content}", bb.String(), -1)
+	result = strings.Replace(result, "{unsafeImport}", unsafeImport, -1)
+	return result, nil
 }
 
 func NewWithContent(b []byte) (*SrcFile, error) {
@@ -152,11 +166,10 @@ func NewWithContent(b []byte) (*SrcFile, error) {
 }
 
 var qtcFileTemplate = `{% stripspace %}
-{% import
-
+{% import (
 "log"
-
-%}
+{unsafeImport}
+) %}
 
 {%code
 	var _ = log.Printf

@@ -50,6 +50,28 @@ func (f *SrcFile) getUnmarshalFile() (string, error) {
 			updateBody += fieldBlock
 		}
 	}
+	byteDecoderNeeded := false
+	for _, structName := range f.Structures {
+		si := f.Registry.Structs[structName]
+		if si == nil {
+			continue
+		}
+		for _, fi := range si.Fields {
+			if !isBytesStringField(structName, fi) {
+				continue
+			}
+			jsonName := getJsonName(fi)
+			if jsonName == "" {
+				continue
+			}
+			byteDecoderNeeded = true
+			block := strings.Replace(byteStringUpdateFieldTemplate, "{fullStructName}", f.PackageName+"."+structName, -1)
+			block = strings.Replace(block, "{goFieldName}", fi.Name, -1)
+			block = strings.Replace(block, "{jsonName}", jsonName, -1)
+			updateBody += block
+		}
+	}
+
 	customExtensionSection := strings.Replace(customExtensionTemplate, "{updateBody}", updateBody, -1)
 	buf.WriteString(customExtensionSection)
 
@@ -83,6 +105,9 @@ func (f *SrcFile) getUnmarshalFile() (string, error) {
 	buf.WriteString(extensionMethodsTemplate)
 	if *boolToInt {
 		buf.WriteString(boolDecoderMethodTemplate)
+	}
+	if byteDecoderNeeded {
+		buf.WriteString(byteStringDecoderTypeTemplate)
 	}
 
 	return buf.String(), nil
@@ -194,4 +219,45 @@ var updateFieldTemplate = `	if structDescriptor.Type.String() == "{fullStructNam
 			}
 		}
 	}
+`
+
+var byteStringUpdateFieldTemplate = `	if structDescriptor.Type.String() == "{fullStructName}" {
+		for _, field := range structDescriptor.Fields {
+			if field.Field.Name() == "{goFieldName}" {
+				baseLevel := len(structDescriptor.Fields) + 1
+				byteBinding := &jsoniter.Binding{
+					Field:     field.Field,
+					FromNames: []string{"{jsonName}"},
+					ToNames:   []string{"{jsonName}"},
+					Encoder:   field.Encoder,
+					Decoder:   &byteStringDecoder{},
+				}
+				{
+					rv := reflect.ValueOf(byteBinding).Elem()
+					lf := rv.FieldByName("levels")
+					reflect.NewAt(lf.Type(), unsafe.Pointer(lf.UnsafeAddr())).Elem().Set(reflect.ValueOf([]int{baseLevel}))
+				}
+				structDescriptor.Fields = append(structDescriptor.Fields, byteBinding)
+				break
+			}
+		}
+	}
+`
+
+var byteStringDecoderTypeTemplate = `type byteStringDecoder struct{}
+
+func (d *byteStringDecoder) Decode(ptr unsafe.Pointer, iter *jsoniter.Iterator) {
+	switch iter.WhatIsNext() {
+	case jsoniter.NilValue:
+		iter.ReadNil()
+		*((*[]byte)(ptr)) = nil
+	case jsoniter.StringValue:
+		b := iter.ReadStringAsSlice()
+		dst := make([]byte, len(b))
+		copy(dst, b)
+		*((*[]byte)(ptr)) = dst
+	default:
+		iter.ReportError("byteStringDecoder", "expected string or null")
+	}
+}
 `
